@@ -1,0 +1,13 @@
+{
+  "name": "backoffice-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram Bot & Backoffice Automation for Cloudflare Workers Free Tier",
+  "main": "worker.js",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "dry-run": "wrangler deploy --dry-run"
+  },
+  "dependencies": {}
+}

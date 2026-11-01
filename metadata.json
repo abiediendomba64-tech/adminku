@@ -1,0 +1,6 @@
+{
+  "name": "Backoffice Bot",
+  "description": "Panel Backoffice & Marketing Tags Browser, Google Search Console Indexing, Domain Requests & Member Ticket System with Telegram Bot Dispatcher and Gemini AI Assistant",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

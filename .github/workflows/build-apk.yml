@@ -1,0 +1,104 @@
+name: Build Android APK (Free CI/CD)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Pilih jenis APK yang akan di-build'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+          - both
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build APK on Free GitHub Runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: ☕ Setup Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 🐘 Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: 🔑 Persiapkan Konfigurasi Environment (.env)
+        run: |
+          echo "Menyiapkan file .env untuk Secrets Gradle Plugin..."
+          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
+            echo 'GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}"' > .env
+          else
+            echo 'GEMINI_API_KEY="MY_GEMINI_API_KEY"' > .env
+          fi
+          cat .env
+
+      - name: 🔒 Pulihkan Debug Keystore
+        run: |
+          if [ -f "debug.keystore.base64" ]; then
+            echo "Memulihkan debug.keystore dari base64..."
+            base64 -d debug.keystore.base64 > debug.keystore || true
+          fi
+
+      - name: 🔨 Berikan Akses Eksekusi gradlew
+        run: chmod +x gradlew
+
+      - name: 🚀 Build APK Debug
+        if: ${{ github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == 'both' || github.event_name == 'push' || github.event_name == 'pull_request' }}
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: 🚀 Build APK Release
+        if: ${{ github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'both' || startsWith(github.ref, 'refs/tags/v') }}
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: 📤 Upload Artifact APK Debug (Gratis Unduh)
+        if: ${{ always() && (github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == 'both' || github.event_name == 'push' || github.event_name == 'pull_request') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: BackofficeBot-Debug-APK
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: 📤 Upload Artifact APK Release
+        if: ${{ always() && (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'both' || startsWith(github.ref, 'refs/tags/v')) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: BackofficeBot-Release-APK
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: 🏷️ Publikasikan GitHub Release Otomatis (Jika Tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+          generate_release_notes: true
+          name: Release ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
