@@ -25,23 +25,23 @@ permissions:
 jobs:
   build:
     name: Build APK on Free GitHub Runner
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
       - name: ☕ Setup Java 17 (Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: 🐘 Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: false
 
@@ -93,7 +93,7 @@ jobs:
 
       - name: 📤 Upload Artifact APK Debug (Gratis Unduh)
         if: ${{ always() && (github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == 'both' || github.event_name == 'push' || github.event_name == 'pull_request') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: BackofficeBot-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
@@ -102,7 +102,7 @@ jobs:
 
       - name: 📤 Upload Artifact APK Release
         if: ${{ always() && (github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'both' || startsWith(github.ref, 'refs/tags/v')) }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: BackofficeBot-Release-APK
           path: app/build/outputs/apk/release/*.apk
@@ -111,7 +111,7 @@ jobs:
 
       - name: 🏷️ Publikasikan GitHub Release Otomatis (Jika Tag v*)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             app/build/outputs/apk/debug/*.apk

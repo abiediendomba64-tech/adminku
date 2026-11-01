@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.view.ViewGroup
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -54,6 +56,7 @@ import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Web
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -72,9 +75,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -160,11 +165,12 @@ fun WebWorkspaceScreen(
 
     // Map to hold WebView instances for each tab to keep session and state alive
     val webViewsMap = remember { mutableMapOf<String, WebView>() }
+    val rendererCrashedTabs = remember { mutableStateMapOf<String, String>() }
 
     // Clean up WebViews when Composable leaves
     DisposableEffect(Unit) {
         onDispose {
-            webViewsMap.values.forEach { it.destroy() }
+            webViewsMap.values.toList().forEach { destroyWebViewSafely(it) }
             webViewsMap.clear()
         }
     }
@@ -240,12 +246,16 @@ fun WebWorkspaceScreen(
                                 Spacer(modifier = Modifier.width(4.dp))
                                 IconButton(
                                     onClick = {
-                                        webViewsMap[tab.id]?.destroy()
-                                        webViewsMap.remove(tab.id)
+                                        val wasSelected = selectedTabIndex == index
+                                        webViewsMap.remove(tab.id)?.let { destroyWebViewSafely(it) }
+                                        rendererCrashedTabs.remove(tab.id)
                                         tabs.removeAt(index)
-                                        if (selectedTabIndex >= tabs.size) {
-                                            selectedTabIndex = tabs.size - 1
+                                        selectedTabIndex = when {
+                                            wasSelected -> index.coerceAtMost(tabs.lastIndex)
+                                            index < selectedTabIndex -> selectedTabIndex - 1
+                                            else -> selectedTabIndex
                                         }
+                                        urlInputText = tabs[selectedTabIndex].url
                                     },
                                     modifier = Modifier.size(18.dp)
                                 ) {
@@ -262,14 +272,18 @@ fun WebWorkspaceScreen(
                     // Add custom new tab button
                     IconButton(
                         onClick = {
-                            val newTab = WorkspaceWebTab(
-                                title = "Tab Baru",
-                                url = "https://google.com",
-                                icon = Icons.Default.Language
-                            )
-                            tabs.add(newTab)
-                            selectedTabIndex = tabs.size - 1
-                            urlInputText = newTab.url
+                            if (tabs.size >= MAX_OPEN_WEB_TABS) {
+                                Toast.makeText(context, "Maksimum $MAX_OPEN_WEB_TABS tab. Tutup tab lain terlebih dahulu.", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val newTab = WorkspaceWebTab(
+                                    title = "Tab Baru",
+                                    url = "https://google.com",
+                                    icon = Icons.Default.Language
+                                )
+                                tabs.add(newTab)
+                                selectedTabIndex = tabs.size - 1
+                                urlInputText = newTab.url
+                            }
                         },
                         modifier = Modifier
                             .size(28.dp)
@@ -516,72 +530,142 @@ fun WebWorkspaceScreen(
 
         // WEBVIEW CONTAINER
         Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    val wv = webViewsMap.getOrPut(activeTab.id) {
-                        WebView(ctx).apply {
-                            this.settings.apply {
-                                javaScriptEnabled = true
-                                domStorageEnabled = true
-                                loadWithOverviewMode = true
-                                useWideViewPort = true
-                                setSupportZoom(true)
-                                builtInZoomControls = true
-                                displayZoomControls = false
-                                cacheMode = WebSettings.LOAD_DEFAULT
-                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                            }
-
-                            webViewClient = object : WebViewClient() {
-                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                    super.onPageStarted(view, url, favicon)
-                                    isCurrentLoading = true
-                                    url?.let {
-                                        activeTab.url = it
-                                        urlInputText = it
-                                    }
-                                }
-
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    isCurrentLoading = false
-                                    url?.let {
-                                        activeTab.url = it
-                                        urlInputText = it
-                                    }
-                                    view?.title?.let {
-                                        if (it.isNotBlank()) activeTab.title = it
-                                    }
-                                }
-                            }
-
-                            webChromeClient = object : WebChromeClient() {
-                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                    activeProgress = newProgress / 100f
-                                    if (newProgress == 100) isCurrentLoading = false
-                                }
-
-                                override fun onReceivedTitle(view: WebView?, title: String?) {
-                                    super.onReceivedTitle(view, title)
-                                    title?.let { if (it.isNotBlank()) activeTab.title = it }
-                                }
-                            }
-
-                            loadUrl(activeTab.url)
+            val rendererMessage = rendererCrashedTabs[activeTab.id]
+            if (rendererMessage != null) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "Renderer browser terhenti",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = rendererMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            rendererCrashedTabs.remove(activeTab.id)
+                            activeProgress = 0f
+                            isCurrentLoading = true
                         }
-                    }
-                    wv
-                },
-                update = { view ->
-                    // If active tab URL changed or different instance
-                    if (view.url != activeTab.url && activeTab.url.isNotBlank()) {
-                        view.loadUrl(activeTab.url)
+                    ) {
+                        Text("Buat ulang WebView")
                     }
                 }
-            )
+            } else {
+                key(activeTab.id) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            val tabId = activeTab.id
+                            val wv = webViewsMap.getOrPut(tabId) {
+                                WebView(ctx).apply {
+                                    this.settings.apply {
+                                        javaScriptEnabled = true
+                                        domStorageEnabled = true
+                                        loadWithOverviewMode = true
+                                        useWideViewPort = true
+                                        setSupportZoom(true)
+                                        builtInZoomControls = true
+                                        displayZoomControls = false
+                                        cacheMode = WebSettings.LOAD_DEFAULT
+                                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                    }
+
+                                    webViewClient = object : WebViewClient() {
+                                        override fun onRenderProcessGone(
+                                            view: WebView,
+                                            detail: RenderProcessGoneDetail
+                                        ): Boolean {
+                                            val affectedTabId = webViewsMap.entries
+                                                .firstOrNull { it.value === view }?.key ?: tabId
+                                            val wasTracked = webViewsMap[affectedTabId] === view
+                                            if (wasTracked) webViewsMap.remove(affectedTabId)
+                                            destroyWebViewSafely(view)
+
+                                            if (wasTracked && tabs.any { it.id == affectedTabId }) {
+                                                rendererCrashedTabs[affectedTabId] =
+                                                    if (detail.didCrash()) {
+                                                        "Proses Chromium mengalami crash. Buat ulang tab secara manual."
+                                                    } else {
+                                                        "Android menghentikan proses renderer. Buat ulang tab untuk melanjutkan."
+                                                    }
+                                            }
+                                            if (affectedTabId == tabs.getOrNull(selectedTabIndex)?.id) {
+                                                isCurrentLoading = false
+                                                activeProgress = 0f
+                                            }
+                                            return true
+                                        }
+
+                                        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                            super.onPageStarted(view, url, favicon)
+                                            val isActiveTab = tabs.getOrNull(selectedTabIndex)?.id == tabId
+                                            if (isActiveTab) isCurrentLoading = true
+                                            url?.let {
+                                                activeTab.url = it
+                                                if (isActiveTab) urlInputText = it
+                                            }
+                                        }
+
+                                        override fun onPageFinished(view: WebView?, url: String?) {
+                                            super.onPageFinished(view, url)
+                                            val isActiveTab = tabs.getOrNull(selectedTabIndex)?.id == tabId
+                                            if (isActiveTab) isCurrentLoading = false
+                                            url?.let {
+                                                activeTab.url = it
+                                                if (isActiveTab) urlInputText = it
+                                            }
+                                            view?.title?.let {
+                                                if (it.isNotBlank()) activeTab.title = it
+                                            }
+                                        }
+                                    }
+
+                                    webChromeClient = object : WebChromeClient() {
+                                        override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                            if (tabs.getOrNull(selectedTabIndex)?.id == tabId) {
+                                                activeProgress = newProgress / 100f
+                                                if (newProgress == 100) isCurrentLoading = false
+                                            }
+                                        }
+
+                                        override fun onReceivedTitle(view: WebView?, title: String?) {
+                                            super.onReceivedTitle(view, title)
+                                            title?.let { if (it.isNotBlank()) activeTab.title = it }
+                                        }
+                                    }
+
+                                    loadUrl(activeTab.url)
+                                }
+                            }
+                            wv
+                        },
+                        update = { view ->
+                            if (view.url != activeTab.url && activeTab.url.isNotBlank()) {
+                                view.loadUrl(activeTab.url)
+                            }
+                        }
+                    )
+                }
+            }
         }
     }
+}
+
+private const val MAX_OPEN_WEB_TABS = 5
+
+private fun destroyWebViewSafely(webView: WebView) {
+    runCatching { (webView.parent as? ViewGroup)?.removeView(webView) }
+    runCatching { webView.stopLoading() }
+    runCatching { webView.destroy() }
 }
 
 @Composable
@@ -639,7 +723,7 @@ private fun openOrSwitchToUrl(
     val existingIndex = tabs.indexOfFirst { it.url.startsWith(targetUrl) || targetUrl.startsWith(it.url) }
     if (existingIndex >= 0) {
         onSelectIndex(existingIndex)
-    } else {
+    } else if (tabs.size < MAX_OPEN_WEB_TABS) {
         val newTab = WorkspaceWebTab(
             title = title,
             url = targetUrl,
