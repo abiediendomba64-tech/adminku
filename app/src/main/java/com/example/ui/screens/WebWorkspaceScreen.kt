@@ -275,14 +275,14 @@ fun WebWorkspaceScreen(
                             if (tabs.size >= MAX_OPEN_WEB_TABS) {
                                 Toast.makeText(context, "Maksimum $MAX_OPEN_WEB_TABS tab. Tutup tab lain terlebih dahulu.", Toast.LENGTH_SHORT).show()
                             } else {
-                            val newTab = WorkspaceWebTab(
-                                title = "Tab Baru",
-                                url = "https://google.com",
-                                icon = Icons.Default.Language
-                            )
-                            tabs.add(newTab)
-                            selectedTabIndex = tabs.size - 1
-                            urlInputText = newTab.url
+                                val newTab = WorkspaceWebTab(
+                                    title = "Tab Baru",
+                                    url = "https://google.com",
+                                    icon = Icons.Default.Language
+                                )
+                                tabs.add(newTab)
+                                selectedTabIndex = tabs.size - 1
+                                urlInputText = newTab.url
                             }
                         },
                         modifier = Modifier
@@ -598,7 +598,7 @@ fun WebWorkspaceScreen(
                                                         "Android menghentikan proses renderer. Buat ulang tab untuk melanjutkan."
                                                     }
                                             }
-                                            if (affectedTabId == activeTab.id) {
+                                            if (affectedTabId == tabs.getOrNull(selectedTabIndex)?.id) {
                                                 isCurrentLoading = false
                                                 activeProgress = 0f
                                             }
@@ -607,19 +607,21 @@ fun WebWorkspaceScreen(
 
                                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                             super.onPageStarted(view, url, favicon)
-                                            isCurrentLoading = true
+                                            val isActiveTab = tabs.getOrNull(selectedTabIndex)?.id == tabId
+                                            if (isActiveTab) isCurrentLoading = true
                                             url?.let {
                                                 activeTab.url = it
-                                                urlInputText = it
+                                                if (isActiveTab) urlInputText = it
                                             }
                                         }
 
                                         override fun onPageFinished(view: WebView?, url: String?) {
                                             super.onPageFinished(view, url)
-                                            isCurrentLoading = false
+                                            val isActiveTab = tabs.getOrNull(selectedTabIndex)?.id == tabId
+                                            if (isActiveTab) isCurrentLoading = false
                                             url?.let {
                                                 activeTab.url = it
-                                                urlInputText = it
+                                                if (isActiveTab) urlInputText = it
                                             }
                                             view?.title?.let {
                                                 if (it.isNotBlank()) activeTab.title = it
@@ -629,8 +631,10 @@ fun WebWorkspaceScreen(
 
                                     webChromeClient = object : WebChromeClient() {
                                         override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                            activeProgress = newProgress / 100f
-                                            if (newProgress == 100) isCurrentLoading = false
+                                            if (tabs.getOrNull(selectedTabIndex)?.id == tabId) {
+                                                activeProgress = newProgress / 100f
+                                                if (newProgress == 100) isCurrentLoading = false
+                                            }
                                         }
 
                                         override fun onReceivedTitle(view: WebView?, title: String?) {
@@ -656,7 +660,7 @@ fun WebWorkspaceScreen(
     }
 }
 
-private const val MAX_OPEN_WEB_TABS = 8
+private const val MAX_OPEN_WEB_TABS = 5
 
 private fun destroyWebViewSafely(webView: WebView) {
     runCatching { (webView.parent as? ViewGroup)?.removeView(webView) }
