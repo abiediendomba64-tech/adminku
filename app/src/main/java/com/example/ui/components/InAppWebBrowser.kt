@@ -4,12 +4,15 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.view.ViewGroup
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,6 +30,7 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -68,6 +73,17 @@ fun InAppWebBrowser(
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
+    var rendererCrashed by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewInstance?.let { webView ->
+                (webView.parent as? ViewGroup)?.removeView(webView)
+                webView.stopLoading()
+                webView.destroy()
+            }
+        }
+    }
 
     BackHandler {
         if (webViewInstance?.canGoBack() == true) {
@@ -171,7 +187,30 @@ fun InAppWebBrowser(
             }
 
             Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
-                AndroidView(
+                if (rendererCrashed) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Renderer browser terhenti. Halaman tidak dimuat ulang otomatis agar tidak mengulang crash.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                rendererCrashed = false
+                                isLoading = true
+                                progress = 0f
+                            }
+                        ) {
+                            Text("Muat ulang halaman")
+                        }
+                    }
+                } else {
+                    AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
                         WebView(ctx).apply {
@@ -188,6 +227,24 @@ fun InAppWebBrowser(
                             }
 
                             webViewClient = object : WebViewClient() {
+                                override fun onRenderProcessGone(
+                                    view: WebView,
+                                    detail: RenderProcessGoneDetail
+                                ): Boolean {
+                                    if (webViewInstance === view) {
+                                        webViewInstance = null
+                                        rendererCrashed = true
+                                        isLoading = false
+                                        progress = 0f
+                                        canGoBack = false
+                                        canGoForward = false
+                                    }
+                                    (view.parent as? ViewGroup)?.removeView(view)
+                                    view.stopLoading()
+                                    view.destroy()
+                                    return true
+                                }
+
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     super.onPageStarted(view, url, favicon)
                                     isLoading = true
@@ -220,14 +277,15 @@ fun InAppWebBrowser(
                                 }
                             }
 
-                            loadUrl(initialUrl)
+                            loadUrl(currentUrl)
                             webViewInstance = this
                         }
                     },
                     update = { view ->
                         webViewInstance = view
                     }
-                )
+                    )
+                }
             }
         }
     }
