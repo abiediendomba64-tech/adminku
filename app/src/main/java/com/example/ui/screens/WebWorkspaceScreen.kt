@@ -576,7 +576,7 @@ fun WebWorkspaceScreen(
                                         builtInZoomControls = true
                                         displayZoomControls = false
                                         cacheMode = WebSettings.LOAD_DEFAULT
-                                        mixedContentMode = WebSettings.MIXED_CONTENT.ALWAYS_ALLOW
+                                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                     }
 
                                     webViewClient = object : WebViewClient() {
