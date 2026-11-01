@@ -5,16 +5,20 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.db.AppDatabase
 import com.example.data.model.DomainRequest
+import com.example.data.model.GscSubmissionLog
 import com.example.data.model.MemberTicket
 import com.example.data.network.ChatMessage
 import com.example.data.network.GeminiApiService
+import com.example.data.network.CloudflareDeployService
 import com.example.data.network.GscInspectionResult
 import com.example.data.network.GscService
 import com.example.data.network.ReindexExecutionResult
 import com.example.data.network.TelegramApiService
+import com.example.data.network.TelegramMessageService
 import com.example.data.network.TelegramSendResult
 import com.example.data.prefs.AppSettings
 import com.example.data.prefs.SettingsRepository
+import com.example.data.repository.GeminiRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,15 +49,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getInstance(application)
     private val domainDao = db.domainDao()
     private val ticketDao = db.ticketDao()
+    private val gscSubmissionDao = db.gscSubmissionDao()
     private val settingsRepo = SettingsRepository(application)
     private val telegramApi = TelegramApiService()
+    private val telegramMessageService = TelegramMessageService()
     private val geminiApi = GeminiApiService()
+    private val geminiRepository = GeminiRepository(geminiApi)
     private val gscService = GscService()
+    private val cloudflareDeployService = CloudflareDeployService()
 
     val domains: StateFlow<List<DomainRequest>> = domainDao.getAllDomains()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val tickets: StateFlow<List<MemberTicket>> = ticketDao.getAllTickets()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val gscSubmissionLogs: StateFlow<List<GscSubmissionLog>> = gscSubmissionDao.getAllLogs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val settings: StateFlow<AppSettings> = settingsRepo.settings
@@ -75,6 +86,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _webhookActionLoading = MutableStateFlow(false)
     val webhookActionLoading: StateFlow<Boolean> = _webhookActionLoading.asStateFlow()
+
+    private val _ticketAiSuggestion = MutableStateFlow<String?>(null)
+    val ticketAiSuggestion: StateFlow<String?> = _ticketAiSuggestion.asStateFlow()
+
+    private val _isTicketAiLoading = MutableStateFlow(false)
+    val isTicketAiLoading: StateFlow<Boolean> = _isTicketAiLoading.asStateFlow()
+
+    private val _cloudflareDeployStatus = MutableStateFlow<String?>(null)
+    val cloudflareDeployStatus: StateFlow<String?> = _cloudflareDeployStatus.asStateFlow()
+
+    private val _isCloudflareDeploying = MutableStateFlow(false)
+    val isCloudflareDeploying: StateFlow<Boolean> = _isCloudflareDeploying.asStateFlow()
 
     private val _isPollerRunning = MutableStateFlow(false)
     val isPollerRunning: StateFlow<Boolean> = _isPollerRunning.asStateFlow()
@@ -193,16 +216,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ticketDao.insertTicket(ticket)
             logBot("Tiket baru dibuat: #${ticket.ticketCode} (${ticket.memberUsername})")
 
-            // Automatically notify Admin (7862805424) and Group
+            // Automatically dispatch notification via Retrofit TelegramMessageService
             val token = settings.value.telegramBotToken
             if (token.isNotBlank()) {
-                telegramApi.notifyNewTicketCreated(
+                telegramMessageService.dispatchTicketCreated(
                     botToken = token,
+                    ticket = ticket,
                     adminId = settings.value.telegramAdminId,
                     groupId = settings.value.telegramGroupId,
-                    ticket = ticket
+                    webAppUrl = settings.value.telegramWebAppUrl
                 )
-                logBot("Notifikasi tiket #${ticket.ticketCode} terkirim ke Admin & Grup Telegram.")
+                logBot("Notifikasi tiket #${ticket.ticketCode} terkirim via TelegramMessageService ke Admin & Grup.")
             }
         }
     }
@@ -218,18 +242,208 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ticketDao.updateTicket(updated)
             logBot("Status tiket #${ticket.ticketCode} diperbarui: $oldStatus -> $newStatus")
 
-            // Notify Admin & Group of status update
+            // Dispatch update notification via Retrofit TelegramMessageService
             val token = settings.value.telegramBotToken
             if (token.isNotBlank()) {
-                telegramApi.notifyTicketStatusChanged(
+                telegramMessageService.dispatchTicketStatusUpdated(
                     botToken = token,
-                    adminId = settings.value.telegramAdminId,
-                    groupId = settings.value.telegramGroupId,
                     ticket = updated,
                     oldStatus = oldStatus,
-                    newStatus = newStatus
+                    newStatus = newStatus,
+                    adminId = settings.value.telegramAdminId,
+                    groupId = settings.value.telegramGroupId
                 )
-                logBot("Notifikasi update tiket #${ticket.ticketCode} terkirim.")
+                logBot("Update tiket #${ticket.ticketCode} disiarkan ke Telegram.")
+            }
+        }
+    }
+
+    fun requestAiSuggestionForTicket(ticket: MemberTicket) {
+        viewModelScope.launch {
+            _isTicketAiLoading.value = true
+            _ticketAiSuggestion.value = null
+            logBot("Meminta analisis cerdas Gemini AI untuk #${ticket.ticketCode}...")
+            val apiKey = settingsRepo.getEffectiveGeminiApiKey()
+            val result = geminiRepository.generateResponseSuggestion(ticket, apiKey)
+            _isTicketAiLoading.value = false
+            result.onSuccess { suggestion ->
+                _ticketAiSuggestion.value = suggestion
+                logBot("Gemini AI berhasil menghasilkan saran solusi untuk #${ticket.ticketCode}.")
+            }.onFailure { err ->
+                _ticketAiSuggestion.value = "⚠️ Gagal menghasilkan saran AI: ${err.message}"
+                logBot("Error Gemini AI: ${err.message}")
+            }
+        }
+    }
+
+    fun clearTicketAiSuggestion() {
+        _ticketAiSuggestion.value = null
+    }
+
+    fun dispatchAiSuggestionToTelegram(ticket: MemberTicket, suggestion: String) {
+        viewModelScope.launch {
+            val token = settings.value.telegramBotToken
+            val adminId = settings.value.telegramAdminId
+            val groupId = settings.value.telegramGroupId
+            val res = telegramMessageService.dispatchAiSuggestedReply(token, ticket, suggestion, adminId, groupId)
+            res.onSuccess {
+                logBot("Draft saran AI untuk #${ticket.ticketCode} berhasil dikirim ke Telegram!")
+            }.onFailure {
+                logBot("Gagal kirim draft AI ke Telegram: ${it.message}")
+            }
+        }
+    }
+
+    fun submitUrlForIndexing(rawUrl: String, searchEngine: String = "Google Search Console") {
+        viewModelScope.launch {
+            val cleanUrl = rawUrl.trim()
+            if (cleanUrl.isEmpty()) return@launch
+            val domain = cleanUrl.replace("https://", "").replace("http://", "").split("/")[0]
+            _reindexStatus.value = ReindexUiStatus.Loading(domain)
+            logBot("Mengajukan URL indexing [$searchEngine]: $cleanUrl")
+
+            val result = gscService.triggerReindexing(
+                domain = domain,
+                marketingTagsPath = settings.value.marketingTagsPath,
+                adminId = settings.value.telegramAdminId
+            )
+            _reindexStatus.value = ReindexUiStatus.Result(result)
+
+            val fullUrl = if (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://")) cleanUrl else "https://$cleanUrl"
+            val inspection = gscService.inspectDomainGsc(domain)
+
+            // Persist into Room database GscSubmissionLog
+            val logEntry = GscSubmissionLog(
+                url = fullUrl,
+                domain = domain,
+                searchEngine = searchEngine,
+                httpStatus = inspection.httpCode,
+                verificationTagFound = inspection.hasVerificationTag,
+                sitemapDetected = inspection.hasSitemap,
+                indexingStatus = inspection.indexingStatus,
+                diagnosticMessage = result.message,
+                gscTrackingId = result.gscTrackingId,
+                submittedAt = System.currentTimeMillis()
+            )
+            gscSubmissionDao.insertLog(logEntry)
+
+            val token = settings.value.telegramBotToken
+            if (token.isNotEmpty()) {
+                val adminId = settings.value.telegramAdminId
+                telegramMessageService.sendMessage(
+                    botToken = token,
+                    chatId = adminId,
+                    text = """
+                        🔍 <b>[SUBMIT URL INDEXING LANGSUNG]</b>
+                        ━━━━━━━━━━━━━━━━━━━━
+                        • <b>Mesin Pencari:</b> $searchEngine
+                        • <b>URL Target:</b> <code>$fullUrl</code>
+                        • <b>Domain:</b> <code>$domain</code>
+                        • <b>Tracking Code:</b> <code>#${result.gscTrackingId}</code>
+                        • <b>Status Audit:</b> <code>${inspection.indexingStatus}</code>
+                        • <b>Meta Tag GSC:</b> ${if (inspection.hasVerificationTag) "✅ TERVERIFIKASI" else "⚠️ BELUM TERDETEKSI"}
+                        • <b>Sitemap.xml:</b> ${if (inspection.hasSitemap) "✅ TERSEDIA" else "⚪ BELUM TERDETEKSI"}
+                        • <b>Rincian:</b> ${result.message}
+                        ━━━━━━━━━━━━━━━━━━━━
+                        🤖 <i>Tercatat di Riwayat Log GSC Backoffice</i>
+                    """.trimIndent()
+                )
+            }
+            logBot("URL $fullUrl berhasil disimpan ke Riwayat Log GSC (#${result.gscTrackingId})")
+        }
+    }
+
+    fun deleteGscLog(log: GscSubmissionLog) {
+        viewModelScope.launch {
+            gscSubmissionDao.deleteLog(log)
+            logBot("Log riwayat GSC #${log.gscTrackingId} dihapus.")
+        }
+    }
+
+    fun clearAllGscLogs() {
+        viewModelScope.launch {
+            gscSubmissionDao.clearAllLogs()
+            logBot("Seluruh riwayat log indexing GSC berhasil dibersihkan.")
+        }
+    }
+
+    fun approveDomainRequest(domain: DomainRequest) {
+        viewModelScope.launch {
+            val updated = domain.copy(
+                registrationStatus = DomainRequest.REG_APPROVED,
+                status = DomainRequest.STATUS_ACTIVE
+            )
+            domainDao.updateDomain(updated)
+            logBot("Domain ${domain.domainName} DISETUJUI.")
+
+            val token = settings.value.telegramBotToken
+            if (token.isNotEmpty()) {
+                val adminId = settings.value.telegramAdminId
+                telegramMessageService.sendMessage(
+                    botToken = token,
+                    chatId = adminId,
+                    text = "✅ <b>[PERMOHONAN DOMAIN DISETUJUI]</b>\nDomain: <code>${domain.domainName}</code>\nStatus: <b>AKTIF</b>\nAdmin dapat melanjutkan konfigurasi DNS dan GSC."
+                )
+            }
+        }
+    }
+
+    fun rejectDomainRequest(domain: DomainRequest, reason: String) {
+        viewModelScope.launch {
+            val updated = domain.copy(
+                registrationStatus = DomainRequest.REG_REJECTED,
+                rejectionReason = reason
+            )
+            domainDao.updateDomain(updated)
+            logBot("Domain ${domain.domainName} DITOLAK. Alasan: $reason")
+
+            val token = settings.value.telegramBotToken
+            if (token.isNotEmpty()) {
+                val adminId = settings.value.telegramAdminId
+                telegramMessageService.sendMessage(
+                    botToken = token,
+                    chatId = adminId,
+                    text = "❌ <b>[PERMOHONAN DOMAIN DITOLAK]</b>\nDomain: <code>${domain.domainName}</code>\nAlasan: $reason"
+                )
+            }
+        }
+    }
+
+    fun deployRemoteToCloudflare(apiToken: String, accountId: String, subdomain: String = "") {
+        viewModelScope.launch {
+            _isCloudflareDeploying.value = true
+            _cloudflareDeployStatus.value = null
+            logBot("Memulai remote deployment script worker ke Cloudflare API...")
+
+            val workerScript = """
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/status")) {
+      return new Response(JSON.stringify({ status: "online", platform: "Cloudflare Workers", time: new Date() }), {
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    if (request.method === "POST" && (url.pathname === "/webhook" || url.pathname === "/")) {
+      return new Response("OK", { status: 200 });
+    }
+    return new Response("Not Found", { status: 404 });
+  }
+};
+            """.trimIndent()
+
+            val deployResult = cloudflareDeployService.deployRemoteWorker(
+                apiToken = apiToken,
+                accountId = accountId,
+                workerCode = workerScript,
+                subdomain = subdomain
+            )
+            _isCloudflareDeploying.value = false
+            _cloudflareDeployStatus.value = deployResult.message
+            logBot("Hasil remote deploy Cloudflare: ${deployResult.message}")
+
+            if (deployResult.success && deployResult.workerUrl != null) {
+                setTelegramWebhook(deployResult.workerUrl)
             }
         }
     }

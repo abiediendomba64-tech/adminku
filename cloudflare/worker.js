@@ -106,6 +106,9 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
   const webAppUrl = env.TELEGRAM_WEBAPP_URL || "https://ais-pre-3jtqjse2yo4oegu26drysb-313938030691.asia-southeast1.run.app";
   const baseDomain = env.BASE_DOMAIN || "panel-utama88.com";
 
+  const senderId = msg.from?.id ? String(msg.from.id) : "";
+  const isAdmin = (senderId === adminId || chatId === adminId);
+
   // Parse command & arguments
   const parts = text.split(/\s+/);
   const command = parts[0].toLowerCase().split("@")[0]; // remove @botname if in group
@@ -242,18 +245,24 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
 
     case "/status_ticket": {
       const tktId = args[0] ? args[0].toUpperCase() : "";
-      const newStatus = args[1] ? args[1].toUpperCase() : "DIPERIKSA";
+      const newStatus = args[1] ? args[1].toUpperCase() : "";
 
       if (!tktId) {
         await sendTelegramMessage(botToken, chatId, `ℹ️ <b>Format Perintah:</b> <code>/status_ticket &lt;ID_TIKET&gt; [STATUS]</code>\nContoh: <code>/status_ticket #TKT-4892 DIPROSES</code>`);
         return;
       }
 
+      if (newStatus && !isAdmin) {
+        await sendTelegramMessage(botToken, chatId, `⛔ <b>Akses Ditolak:</b> Hanya Administrator resmi (@felixsnd) yang berhak memperbarui status tiket member.`);
+        return;
+      }
+
+      const displayStatus = newStatus || "DIPERIKSA";
       const statusText = `📋 <b>STATUS TIKET ${tktId}</b>\n` +
         `━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `• <b>Status Saat Ini:</b> 🟢 <b>${newStatus}</b>\n` +
-        `• <b>Diperbarui Oleh:</b> ${fromUsername}\n` +
-        `• <b>Catatan:</b> Tiket sedang dalam penanganan tim operasional.\n` +
+        `• <b>Status Saat Ini:</b> 🟢 <b>${displayStatus}</b>\n` +
+        `• <b>Diperbarui Oleh:</b> ${fromUsername} ${isAdmin ? "(Admin Verified)" : "(User Check)"}\n` +
+        `• <b>Catatan:</b> ${newStatus ? "Status tiket berhasil diperbarui di sistem." : "Tiket sedang dalam penanganan tim operasional."}\n` +
         `━━━━━━━━━━━━━━━━━━━━━━`;
 
       await sendTelegramMessage(botToken, chatId, statusText);
@@ -294,10 +303,15 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
     }
 
     case "/report": {
+      if (!isAdmin) {
+        await sendTelegramMessage(botToken, chatId, `⛔ <b>Akses Ditolak:</b> Laporan eksekutif sistem hanya dapat diakses oleh Administrator resmi (@felixsnd).`);
+        return;
+      }
+
       const reportMsg = `📊 <b>EXECUTIVE SUMMARY LAPORAN HARIAN</b>\n` +
         `━━━━━━━━━━━━━━━━━━━━━━\n` +
         `• <b>Platform Serverless:</b> Cloudflare Workers (Free Tier)\n` +
-        `• <b>Admin Tujuan:</b> <code>${adminId}</code> (@felixsnd)\n` +
+        `• <b>Admin Otorisasi:</b> <code>${adminId}</code> (@felixsnd)\n` +
         `• <b>Grup Telegram:</b> ${groupLink}\n` +
         `• <b>Domain Terindeks GSC:</b> 1/4 Domain\n` +
         `• <b>Status Server Backoffice:</b> ONLINE 200 OK\n` +

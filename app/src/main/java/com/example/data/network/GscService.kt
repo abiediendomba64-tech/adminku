@@ -74,18 +74,18 @@ class GscService {
                 details.append("• Tag 'google-site-verification' belum ditemukan di HTML header / marketing-tags.\n")
             }
 
-            // Check sitemap
+            val smUrl = if (targetUrl.endsWith("/")) "${targetUrl}sitemap.xml" else "$targetUrl/sitemap.xml"
             try {
-                val smReq = Request.Builder().url(sitemapUrl).head().build()
+                val smReq = Request.Builder().url(smUrl).head().build()
                 val smResp = client.newCall(smReq).execute()
                 hasSitemap = smResp.isSuccessful
                 if (hasSitemap) {
                     details.append("• Sitemap.xml aktif (HTTP ${smResp.code}).\n")
                 } else {
-                    details.append("• Sitemap.xml belum terdeteksi (HTTP ${smResp.code}).\n")
+                    details.append("• Sitemap.xml belum terdeteksi di /sitemap.xml (HTTP ${smResp.code}).\n")
                 }
             } catch (e: Exception) {
-                details.append("• Sitemap.xml tidak dapat diakses.\n")
+                details.append("• Sitemap.xml tidak dapat diakses secara langsung.\n")
             }
 
         } catch (e: Exception) {
@@ -93,9 +93,12 @@ class GscService {
             details.append("• Gagal menghubungi domain: ${e.localizedMessage ?: "Koneksi terputus"}\n")
         }
 
+        // Accurate status determination: meta tag presence proves ownership verification, not immediate Google indexing.
         val indexingStatus = when {
             !isReachable -> "UNREACHABLE"
-            hasVerificationTag && isReachable -> "INDEXED"
+            hasVerificationTag && hasSitemap -> "SUBMITTED" // Ready and queued for crawl
+            hasVerificationTag -> "VERIFIED_OWNERSHIP" // Ownership verified, waiting for sitemap/crawl
+            isReachable && hasSitemap -> "PENDING_VERIFICATION" // Reachable with sitemap, needs meta tag
             isReachable -> "SUBMITTED"
             else -> "NOT_VERIFIED"
         }
@@ -197,4 +200,27 @@ class GscService {
         sb.append("• Google Console: https://search.google.com/search-console/welcome\n")
         return sb.toString()
     }
+
+    companion object {
+        val SUPPORTED_ENGINES = listOf(
+            SearchEngineItem("google", "Google Search Console", "Global / Multi", "https://search.google.com/search-console/welcome", "https://www.google.com/ping?sitemap="),
+            SearchEngineItem("bing", "Bing Webmaster Tools", "Microsoft / Global", "https://www.bing.com/webmasters", "https://www.bing.com/ping?sitemap="),
+            SearchEngineItem("baidu", "Baidu Webmaster (百度)", "Tiongkok / Asia", "https://ziyuan.baidu.com", null),
+            SearchEngineItem("yandex", "Yandex Webmaster", "Rusia / CIS", "https://webmaster.yandex.com", null),
+            SearchEngineItem("naver", "Naver Search Advisor", "Korea Selatan", "https://searchadvisor.naver.com", null),
+            SearchEngineItem("seznam", "Seznam Webmaster", "Republik Ceko", "https://reporter.seznam.cz", null),
+            SearchEngineItem("coccoc", "Cốc Cốc Webmaster", "Vietnam", "https://coccoc.com/webmaster", null),
+            SearchEngineItem("brave", "Brave Search Index", "Global Privacy", "https://search.brave.com", null),
+            SearchEngineItem("mojeek", "Mojeek Independent Index", "UK / Eropa", "https://www.mojeek.com/submit/", null),
+            SearchEngineItem("perplexity", "Perplexity AI Crawler", "Global AI Index", "https://www.perplexity.ai", null)
+        )
+    }
 }
+
+data class SearchEngineItem(
+    val id: String,
+    val name: String,
+    val country: String,
+    val webmasterUrl: String,
+    val sitemapPingUrl: String? = null
+)

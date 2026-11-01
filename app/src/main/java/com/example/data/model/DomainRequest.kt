@@ -16,6 +16,8 @@ data class DomainRequest(
     val gscIndexingStatus: String = "SUBMITTED", // "INDEXED", "SUBMITTED", "PENDING_CRAWL", "NOT_INDEXED"
     val lastReindexedAt: Long? = null,
     val verificationTag: String = "",
+    val registrationStatus: String = REG_PENDING, // PENDING, APPROVED, REJECTED
+    val rejectionReason: String = "",
     val createdAt: Long = System.currentTimeMillis()
 ) {
     companion object {
@@ -23,6 +25,10 @@ data class DomainRequest(
         const val STATUS_ACTIVE = "ACTIVE"
         const val STATUS_INDEXED = "INDEXED_GSC"
         const val STATUS_BLOCKED = "BLOCKED_NAWALA"
+
+        const val REG_PENDING = "PENDING"
+        const val REG_APPROVED = "APPROVED"
+        const val REG_REJECTED = "REJECTED"
 
         const val GSC_INDEXED = "INDEXED"
         const val GSC_SUBMITTED = "SUBMITTED"

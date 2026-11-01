@@ -28,6 +28,7 @@ data class MemberTicket(
         const val STATUS_OPEN = "OPEN"
         const val STATUS_IN_PROGRESS = "DIPROSES"
         const val STATUS_RESOLVED = "SELESAI"
+        const val STATUS_REJECTED = "DITOLAK"
 
         fun generateTicketCode(): String {
             val randomNum = 1000 + Random().nextInt(9000)

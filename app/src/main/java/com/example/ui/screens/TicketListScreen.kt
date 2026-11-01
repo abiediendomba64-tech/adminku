@@ -75,13 +75,18 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material3.FilledTonalButton
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TicketListScreen(
     tickets: List<MemberTicket>,
     onAddTicket: (member: String, cat: String, prio: String, domain: String, desc: String, notes: String) -> Unit,
     onUpdateStatus: (MemberTicket, String) -> Unit,
-    onDeleteTicket: (MemberTicket) -> Unit
+    onDeleteTicket: (MemberTicket) -> Unit,
+    onSelectTicket: ((MemberTicket) -> Unit)? = null
 ) {
     val context = LocalContext.current
     var showAddDialog by remember { mutableStateOf(false) }
@@ -214,7 +219,8 @@ fun TicketListScreen(
                             onShareTicket = {
                                 val text = buildSingleTicketReport(ticket)
                                 TelegramApiService.openTelegramShareIntent(context, text)
-                            }
+                            },
+                            onSelectTicket = onSelectTicket?.let { callback -> { callback(ticket) } }
                         )
                     }
                 }
@@ -238,7 +244,8 @@ fun TicketCardItem(
     ticket: MemberTicket,
     onUpdateStatus: (String) -> Unit,
     onDelete: () -> Unit,
-    onShareTicket: () -> Unit
+    onShareTicket: () -> Unit,
+    onSelectTicket: (() -> Unit)? = null
 ) {
     var statusMenuOpen by remember { mutableStateOf(false) }
 
@@ -408,14 +415,28 @@ fun TicketCardItem(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                OutlinedButton(
-                    onClick = onShareTicket,
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    Icon(imageVector = Icons.Default.Send, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Kirim ke Telegram", style = MaterialTheme.typography.labelSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onSelectTicket != null) {
+                        FilledTonalButton(
+                            onClick = onSelectTicket,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Detail & AI", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    OutlinedButton(
+                        onClick = onShareTicket,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Send, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Telegram", style = MaterialTheme.typography.labelSmall)
+                    }
                 }
 
                 IconButton(

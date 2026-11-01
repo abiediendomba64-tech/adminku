@@ -75,9 +75,13 @@ import com.example.ui.screens.AddTicketDialog
 import com.example.ui.screens.BotCommandCenterScreen
 import com.example.ui.screens.CloudFreeTierScreen
 import com.example.ui.screens.DomainListScreen
+import com.example.ui.screens.DomainRequestsManager
 import com.example.ui.screens.GeminiChatScreen
+import com.example.ui.screens.GscHistoryLogScreen
+import com.example.ui.screens.MarketingTagsBrowserScreen
 import com.example.ui.screens.PanelHubScreen
 import com.example.ui.screens.TelegramReportScreen
+import com.example.ui.screens.TicketDetailScreen
 import com.example.ui.screens.TicketListScreen
 import com.example.ui.screens.WebWorkspaceScreen
 import com.example.ui.theme.MyApplicationTheme
@@ -117,10 +121,14 @@ fun MainAppRoot(viewModel: MainViewModel = viewModel()) {
     var dataSubTabIndex by remember { mutableIntStateOf(0) }
     var prefillDomainForTicket by remember { mutableStateOf<String?>(null) }
     var showDirectCreateTicketDialog by remember { mutableStateOf(false) }
+    var selectedTicketForDetail by remember { mutableStateOf<MemberTicket?>(null) }
+    var showMarketingTagsBrowser by remember { mutableStateOf(false) }
+    var showGscHistoryLogScreen by remember { mutableStateOf(false) }
 
     val settings by viewModel.settings.collectAsState()
     val domains by viewModel.domains.collectAsState()
     val tickets by viewModel.tickets.collectAsState()
+    val gscSubmissionLogs by viewModel.gscSubmissionLogs.collectAsState()
     val telegramStatus by viewModel.telegramStatus.collectAsState()
     val reindexStatus by viewModel.reindexStatus.collectAsState()
     val botLogs by viewModel.botLogs.collectAsState()
@@ -131,8 +139,71 @@ fun MainAppRoot(viewModel: MainViewModel = viewModel()) {
     val botVerificationResult by viewModel.botVerificationResult.collectAsState()
     val webhookResult by viewModel.webhookInfoResult.collectAsState()
     val webhookActionLoading by viewModel.webhookActionLoading.collectAsState()
+    val ticketAiSuggestion by viewModel.ticketAiSuggestion.collectAsState()
+    val isTicketAiLoading by viewModel.isTicketAiLoading.collectAsState()
+    val cloudflareDeployStatus by viewModel.cloudflareDeployStatus.collectAsState()
+    val isCloudflareDeploying by viewModel.isCloudflareDeploying.collectAsState()
 
     val openTicketsCount = tickets.count { it.status == MemberTicket.STATUS_OPEN }
+
+    if (showGscHistoryLogScreen) {
+        GscHistoryLogScreen(
+            logs = gscSubmissionLogs,
+            onBack = { showGscHistoryLogScreen = false },
+            onSubmitUrl = { url, engine ->
+                viewModel.submitUrlForIndexing(url, engine)
+            },
+            onDeleteLog = { log ->
+                viewModel.deleteGscLog(log)
+            },
+            onClearAllLogs = {
+                viewModel.clearAllGscLogs()
+            },
+            onSendReportToTelegram = { text ->
+                viewModel.sendTelegramReport(settings.telegramAdminId, text)
+            },
+            onOpenInBrowser = { url, title ->
+                activeBrowserUrl = url
+                activeBrowserTitle = title
+            }
+        )
+        return
+    }
+
+    if (selectedTicketForDetail != null) {
+        TicketDetailScreen(
+            ticket = selectedTicketForDetail!!,
+            aiSuggestion = ticketAiSuggestion,
+            isAiLoading = isTicketAiLoading,
+            onBack = {
+                selectedTicketForDetail = null
+                viewModel.clearTicketAiSuggestion()
+            },
+            onUpdateStatus = { newStatus, notes ->
+                viewModel.updateTicketStatus(selectedTicketForDetail!!, newStatus, notes)
+                selectedTicketForDetail = selectedTicketForDetail?.copy(status = newStatus, adminNotes = notes)
+            },
+            onRequestAiSuggestion = {
+                viewModel.requestAiSuggestionForTicket(selectedTicketForDetail!!)
+            },
+            onDispatchAiReplyToTelegram = { text ->
+                viewModel.dispatchAiSuggestionToTelegram(selectedTicketForDetail!!, text)
+            }
+        )
+        return
+    }
+
+    if (showMarketingTagsBrowser) {
+        MarketingTagsBrowserScreen(
+            settings = settings,
+            onBack = { showMarketingTagsBrowser = false },
+            onOpenInBrowser = { url, title ->
+                activeBrowserUrl = url
+                activeBrowserTitle = title
+            }
+        )
+        return
+    }
 
     if (activeBrowserUrl != null) {
         InAppWebBrowser(
@@ -256,8 +327,19 @@ fun MainAppRoot(viewModel: MainViewModel = viewModel()) {
                     PanelHubScreen(
                         settings = settings,
                         reindexStatus = reindexStatus,
+                        tickets = tickets,
+                        gscLogCount = gscSubmissionLogs.size,
                         onTriggerReindex = { targetDomain ->
                             viewModel.triggerDomainReindex(targetDomain)
+                        },
+                        onSubmitUrlToGsc = { targetUrl ->
+                            viewModel.submitUrlForIndexing(targetUrl)
+                        },
+                        onOpenGscHistory = {
+                            showGscHistoryLogScreen = true
+                        },
+                        onSelectTicket = { ticket ->
+                            selectedTicketForDetail = ticket
                         },
                         onDismissReindex = {
                             viewModel.dismissReindexStatus()
@@ -280,6 +362,9 @@ fun MainAppRoot(viewModel: MainViewModel = viewModel()) {
                         onOpenSettings = { showSettingsDialog = true },
                         onUpdateDomain = { newDomain ->
                             viewModel.saveSettings(settings.copy(baseDomain = newDomain))
+                        },
+                        onOpenMarketingTags = {
+                            showMarketingTagsBrowser = true
                         }
                     )
                 }
@@ -298,7 +383,7 @@ fun MainAppRoot(viewModel: MainViewModel = viewModel()) {
                     )
                 }
 
-                // DOMAIN REQUESTS & MEMBER TICKETS
+                // DOMAIN REQUESTS & MEMBER TICKETS & MARKETING TAGS & GSC LOG
                 AppTab.DATA -> {
                     Column(modifier = Modifier.fillMaxSize()) {
                         TabRow(
@@ -310,7 +395,7 @@ fun MainAppRoot(viewModel: MainViewModel = viewModel()) {
                                 onClick = { dataSubTabIndex = 0 },
                                 text = {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("🎫 Tiket Kendala Member", style = MaterialTheme.typography.labelMedium)
+                                        Text("🎫 Tiket Member", style = MaterialTheme.typography.labelMedium)
                                         if (openTicketsCount > 0) {
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Badge { Text(openTicketsCount.toString()) }
@@ -321,40 +406,89 @@ fun MainAppRoot(viewModel: MainViewModel = viewModel()) {
                             Tab(
                                 selected = dataSubTabIndex == 1,
                                 onClick = { dataSubTabIndex = 1 },
-                                text = { Text("🌐 Request List Domain", style = MaterialTheme.typography.labelMedium) }
+                                text = { Text("🌐 Request Domain", style = MaterialTheme.typography.labelMedium) }
+                            )
+                            Tab(
+                                selected = dataSubTabIndex == 2,
+                                onClick = { dataSubTabIndex = 2 },
+                                text = { Text("🏷️ Marketing Tags", style = MaterialTheme.typography.labelMedium) }
+                            )
+                            Tab(
+                                selected = dataSubTabIndex == 3,
+                                onClick = { dataSubTabIndex = 3 },
+                                text = { Text("📜 Log GSC (${gscSubmissionLogs.size})", style = MaterialTheme.typography.labelMedium) }
                             )
                         }
 
-                        if (dataSubTabIndex == 0) {
-                            TicketListScreen(
-                                tickets = tickets,
-                                onAddTicket = { mem, cat, prio, dom, desc, notes ->
-                                    viewModel.createMemberTicket(mem, cat, prio, dom, desc, notes, "MANUAL")
-                                },
-                                onUpdateStatus = { ticket, status ->
-                                    viewModel.updateTicketStatus(ticket, status)
-                                },
-                                onDeleteTicket = { ticket ->
-                                    viewModel.deleteTicket(ticket)
-                                }
-                            )
-                        } else {
-                            DomainListScreen(
-                                domains = domains,
-                                onAddDomain = { name, cat, path, dns, notes ->
-                                    viewModel.addDomain(name, cat, path, dns, notes)
-                                },
-                                onUpdateStatus = { dom, status ->
-                                    viewModel.updateDomainStatus(dom, status)
-                                },
-                                onDeleteDomain = { dom ->
-                                    viewModel.deleteDomain(dom)
-                                },
-                                onOpenUrl = { url, title ->
-                                    activeBrowserUrl = url
-                                    activeBrowserTitle = title
-                                }
-                            )
+                        when (dataSubTabIndex) {
+                            0 -> {
+                                TicketListScreen(
+                                    tickets = tickets,
+                                    onAddTicket = { mem, cat, prio, dom, desc, notes ->
+                                        viewModel.createMemberTicket(mem, cat, prio, dom, desc, notes, "MANUAL")
+                                    },
+                                    onUpdateStatus = { ticket, status ->
+                                        viewModel.updateTicketStatus(ticket, status)
+                                    },
+                                    onDeleteTicket = { ticket ->
+                                        viewModel.deleteTicket(ticket)
+                                    },
+                                    onSelectTicket = { ticket ->
+                                        selectedTicketForDetail = ticket
+                                    }
+                                )
+                            }
+                            1 -> {
+                                DomainRequestsManager(
+                                    domains = domains,
+                                    onAddRequest = { name, cat, path, dns, notes ->
+                                        viewModel.addDomain(name, cat, path, dns, notes)
+                                    },
+                                    onApproveRequest = { dom ->
+                                        viewModel.approveDomainRequest(dom)
+                                    },
+                                    onRejectRequest = { dom, reason ->
+                                        viewModel.rejectDomainRequest(dom, reason)
+                                    },
+                                    onDeleteRequest = { dom ->
+                                        viewModel.deleteDomain(dom)
+                                    },
+                                    onSubmitToGsc = { url ->
+                                        viewModel.submitUrlForIndexing(url)
+                                    }
+                                )
+                            }
+                            2 -> {
+                                MarketingTagsBrowserScreen(
+                                    settings = settings,
+                                    onOpenInBrowser = { url, title ->
+                                        activeBrowserUrl = url
+                                        activeBrowserTitle = title
+                                    }
+                                )
+                            }
+                            else -> {
+                                GscHistoryLogScreen(
+                                    logs = gscSubmissionLogs,
+                                    onBack = { dataSubTabIndex = 0 },
+                                    onSubmitUrl = { url, engine ->
+                                        viewModel.submitUrlForIndexing(url, engine)
+                                    },
+                                    onDeleteLog = { log ->
+                                        viewModel.deleteGscLog(log)
+                                    },
+                                    onClearAllLogs = {
+                                        viewModel.clearAllGscLogs()
+                                    },
+                                    onSendReportToTelegram = { text ->
+                                        viewModel.sendTelegramReport(settings.telegramAdminId, text)
+                                    },
+                                    onOpenInBrowser = { url, title ->
+                                        activeBrowserUrl = url
+                                        activeBrowserTitle = title
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -421,10 +555,13 @@ fun MainAppRoot(viewModel: MainViewModel = viewModel()) {
                                     settings = settings,
                                     webhookResult = webhookResult,
                                     isLoading = webhookActionLoading,
+                                    isRemoteDeploying = isCloudflareDeploying,
+                                    remoteDeployStatus = cloudflareDeployStatus,
                                     onSetWebhook = { url -> viewModel.setTelegramWebhook(url) },
                                     onGetWebhookInfo = { viewModel.getTelegramWebhookInfo() },
                                     onDeleteWebhook = { viewModel.deleteTelegramWebhook() },
                                     onClearResult = { viewModel.clearWebhookResult() },
+                                    onRemoteDeploy = { token, acc, sub -> viewModel.deployRemoteToCloudflare(token, acc, sub) },
                                     onSaveSettings = { updated -> viewModel.saveSettings(updated) }
                                 )
                             }

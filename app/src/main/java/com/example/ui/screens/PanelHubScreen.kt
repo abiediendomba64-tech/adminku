@@ -1,5 +1,8 @@
 package com.example.ui.screens
 
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -21,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,10 +33,12 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Domain
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
@@ -41,13 +47,18 @@ import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Tag
+import com.example.data.model.MemberTicket
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -83,19 +94,45 @@ import com.example.ui.viewmodel.ReindexUiStatus
 fun PanelHubScreen(
     settings: AppSettings,
     reindexStatus: ReindexUiStatus,
+    tickets: List<MemberTicket> = emptyList(),
+    gscLogCount: Int = 0,
     onTriggerReindex: (String) -> Unit,
+    onSubmitUrlToGsc: (String) -> Unit = {},
+    onOpenGscHistory: () -> Unit = {},
+    onSelectTicket: (MemberTicket) -> Unit = {},
     onDismissReindex: () -> Unit,
     onOpenUrlInBrowser: (url: String, title: String) -> Unit,
     onOpenExternalBrowser: (url: String) -> Unit,
     onNavigateToChat: () -> Unit,
     onOpenSettings: () -> Unit,
-    onUpdateDomain: (String) -> Unit
+    onUpdateDomain: (String) -> Unit,
+    onOpenMarketingTags: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var editingDomain by remember { mutableStateOf(false) }
     var tempDomain by remember { mutableStateOf(settings.baseDomain) }
     var showConfirmReindexDialog by remember { mutableStateOf(false) }
     var reindexTargetDomain by remember { mutableStateOf(settings.baseDomain) }
+    var gscDirectUrlInput by remember { mutableStateOf("https://${settings.baseDomain}/") }
+
+    var ticketStatusFilter by remember { mutableStateOf("PENDING") } // ALL, PENDING, APPROVED, REJECTED
+    var ticketSortOption by remember { mutableStateOf("NEWEST") } // NEWEST, OLDEST, STATUS
+    var sortMenuExpanded by remember { mutableStateOf(false) }
+
+    val filteredDashboardTickets = remember(tickets, ticketStatusFilter, ticketSortOption) {
+        val filtered = when (ticketStatusFilter) {
+            "PENDING" -> tickets.filter { it.status == MemberTicket.STATUS_OPEN || it.status == MemberTicket.STATUS_IN_PROGRESS }
+            "APPROVED" -> tickets.filter { it.status == MemberTicket.STATUS_RESOLVED }
+            "REJECTED" -> tickets.filter { it.status == MemberTicket.STATUS_REJECTED }
+            else -> tickets
+        }
+        when (ticketSortOption) {
+            "NEWEST" -> filtered.sortedByDescending { it.createdAt }
+            "OLDEST" -> filtered.sortedBy { it.createdAt }
+            "STATUS" -> filtered.sortedBy { it.status }
+            else -> filtered
+        }
+    }
 
     val backofficeUrl = "https://${settings.baseDomain}${settings.backofficePath}"
     val marketingTagsUrl = "https://${settings.baseDomain}${settings.marketingTagsPath}"
@@ -254,6 +291,333 @@ fun PanelHubScreen(
                                             imageVector = Icons.Default.Edit,
                                             contentDescription = "Edit",
                                             modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // SECTION 1: GOOGLE SEARCH CONSOLE URL INDEXING MODULE
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Modul Pengajuan URL Indexing GSC",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Submit URL langsung ke Googlebot untuk inspeksi & crawling",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Kirimkan URL halaman baru atau landing page untuk diaudit kepemilikan meta verifikasi, status sitemap, dan diproses permohonan crawling Googlebot.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = gscDirectUrlInput,
+                        onValueChange = { gscDirectUrlInput = it },
+                        label = { Text("URL Target Pengindeksan") },
+                        placeholder = { Text("https://panel-utama88.com/login") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            if (gscDirectUrlInput.isNotBlank()) {
+                                onSubmitUrlToGsc(gscDirectUrlInput)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("⚡ Submit URL ke Google Search Console Langsung")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = onOpenGscHistory,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("📜 Buka Riwayat Log Indexing GSC ($gscLogCount URL)")
+                    }
+                }
+            }
+        }
+
+        // SECTION 2: TIKET KENDALA MEMBER WITH SORTING & FILTERING SYSTEM
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    // Header with Title & Sorting Dropdown
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFF59E0B).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.ConfirmationNumber,
+                                    contentDescription = null,
+                                    tint = Color(0xFFD97706),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Tiket Kendala Member",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                                Text(
+                                    text = "${tickets.size} total tiket • Filter & Sortir aktif",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // Sorting Dropdown Trigger
+                        Box {
+                            OutlinedButton(
+                                onClick = { sortMenuExpanded = true },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.Sort, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = when (ticketSortOption) {
+                                        "NEWEST" -> "Terbaru"
+                                        "OLDEST" -> "Terlama"
+                                        else -> "Status"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = sortMenuExpanded,
+                                onDismissRequest = { sortMenuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("📅 Tanggal Pengajuan: Terbaru (Default)") },
+                                    onClick = {
+                                        ticketSortOption = "NEWEST"
+                                        sortMenuExpanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("📅 Tanggal Pengajuan: Terlama") },
+                                    onClick = {
+                                        ticketSortOption = "OLDEST"
+                                        sortMenuExpanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("📊 Urutkan Berdasarkan Status") },
+                                    onClick = {
+                                        ticketSortOption = "STATUS"
+                                        sortMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Status Filter Chips: Pending, Approved, Rejected, Semua
+                    val pendingCount = tickets.count { it.status == MemberTicket.STATUS_OPEN || it.status == MemberTicket.STATUS_IN_PROGRESS }
+                    val approvedCount = tickets.count { it.status == MemberTicket.STATUS_RESOLVED }
+                    val rejectedCount = tickets.count { it.status == MemberTicket.STATUS_REJECTED }
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        item {
+                            FilterChip(
+                                selected = ticketStatusFilter == "PENDING",
+                                onClick = { ticketStatusFilter = "PENDING" },
+                                label = { Text("⏳ Pending ($pendingCount)") }
+                            )
+                        }
+                        item {
+                            FilterChip(
+                                selected = ticketStatusFilter == "APPROVED",
+                                onClick = { ticketStatusFilter = "APPROVED" },
+                                label = { Text("✅ Disetujui ($approvedCount)") }
+                            )
+                        }
+                        item {
+                            FilterChip(
+                                selected = ticketStatusFilter == "REJECTED",
+                                onClick = { ticketStatusFilter = "REJECTED" },
+                                label = { Text("❌ Ditolak ($rejectedCount)") }
+                            )
+                        }
+                        item {
+                            FilterChip(
+                                selected = ticketStatusFilter == "ALL",
+                                onClick = { ticketStatusFilter = "ALL" },
+                                label = { Text("Semua (${tickets.size})") }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (filteredDashboardTickets.isEmpty()) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = StatusActive, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Tidak ada tiket untuk status '${when(ticketStatusFilter){ "PENDING" -> "Pending"; "APPROVED" -> "Disetujui / Selesai"; "REJECTED" -> "Ditolak"; else -> "Semua" }}'.",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
+                                )
+                            }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            filteredDashboardTickets.take(6).forEach { ticket ->
+                                val (statusColor, statusLabel) = when (ticket.status) {
+                                    MemberTicket.STATUS_RESOLVED -> StatusActive to "✅ DISETUJUI / SELESAI"
+                                    MemberTicket.STATUS_REJECTED -> StatusBlocked to "❌ DITOLAK"
+                                    MemberTicket.STATUS_IN_PROGRESS -> Color(0xFFD97706) to "⚙️ DIPROSES"
+                                    else -> Color(0xFFD97706) to "⏳ PENDING"
+                                }
+
+                                val dateFormatted = remember(ticket.createdAt) {
+                                    SimpleDateFormat("dd/MM/yy HH:mm", Locale.getDefault()).format(Date(ticket.createdAt))
+                                }
+
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { onSelectTicket(ticket) },
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = "#${ticket.ticketCode}",
+                                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = statusColor.copy(alpha = 0.15f)
+                                                ) {
+                                                    Text(
+                                                        text = statusLabel,
+                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = statusColor
+                                                        ),
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "• ${ticket.priority}",
+                                                    style = MaterialTheme.typography.labelSmall.copy(
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = when (ticket.priority) {
+                                                            MemberTicket.PRIORITY_HIGH -> StatusBlocked
+                                                            MemberTicket.PRIORITY_MEDIUM -> Color(0xFFD97706)
+                                                            else -> StatusActive
+                                                        }
+                                                    )
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "${ticket.memberUsername} • ${ticket.category} • $dateFormatted",
+                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = ticket.issueDescription,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.OpenInNew,
+                                            contentDescription = "Detail",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 }

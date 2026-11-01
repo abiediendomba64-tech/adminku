@@ -76,10 +76,13 @@ fun CloudFreeTierScreen(
     settings: AppSettings,
     webhookResult: String?,
     isLoading: Boolean,
+    isRemoteDeploying: Boolean = false,
+    remoteDeployStatus: String? = null,
     onSetWebhook: (String) -> Unit,
     onGetWebhookInfo: () -> Unit,
     onDeleteWebhook: () -> Unit,
     onClearResult: () -> Unit,
+    onRemoteDeploy: (apiToken: String, accountId: String, subdomain: String) -> Unit = { _, _, _ -> },
     onSaveSettings: (AppSettings) -> Unit
 ) {
     val context = LocalContext.current
@@ -89,6 +92,9 @@ fun CloudFreeTierScreen(
     var githubRepoInput by remember(settings.githubRepoUrl) {
         mutableStateOf(if (settings.githubRepoUrl.isNotEmpty()) settings.githubRepoUrl else "https://github.com/username/backoffice-bot")
     }
+    var cfApiTokenInput by remember { mutableStateOf("") }
+    var cfAccountIdInput by remember { mutableStateOf("") }
+    var cfSubdomainInput by remember { mutableStateOf("") }
 
     fun copyToClipboard(label: String, text: String) {
         val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -384,6 +390,120 @@ jobs:
                             Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Buka Cloudflare", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        }
+
+        // CARD 2B: DEPLOY REMOTE KE CLOUDFLARE API
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFF6821F).copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Bolt, contentDescription = null, tint = Color(0xFFF6821F))
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Deploy Remote ke Cloudflare Workers",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Unggah script langsung ke Cloudflare Edge via API",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Deploy script worker.js secara instan langsung dari aplikasi ini ke server Cloudflare tanpa perlu terminal atau instalasi Node.js di laptop.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = cfAccountIdInput,
+                        onValueChange = { cfAccountIdInput = it.trim() },
+                        label = { Text("Cloudflare Account ID") },
+                        placeholder = { Text("misal: 8ab2f9821...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = cfApiTokenInput,
+                        onValueChange = { cfApiTokenInput = it.trim() },
+                        label = { Text("Cloudflare API Token (Workers Edit)") },
+                        placeholder = { Text("Bearer Token...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = cfSubdomainInput,
+                        onValueChange = { cfSubdomainInput = it.trim() },
+                        label = { Text("Subdomain workers.dev (Opsional)") },
+                        placeholder = { Text("username") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    if (!remoteDeployStatus.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (remoteDeployStatus.contains("Berhasil") || remoteDeployStatus.contains("🚀")) StatusActive.copy(alpha = 0.15f) else StatusBlocked.copy(alpha = 0.15f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = remoteDeployStatus,
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    if (isRemoteDeploying) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Mengunggah script ke Cloudflare API...", style = MaterialTheme.typography.bodySmall)
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                onRemoteDeploy(cfApiTokenInput, cfAccountIdInput, cfSubdomainInput)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF6821F))
+                        ) {
+                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("⚡ Deploy Remote ke Cloudflare Sekarang")
                         }
                     }
                 }
