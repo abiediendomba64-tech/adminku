@@ -12,80 +12,133 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // 1. Health Check & Info
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/status")) {
-      return new Response(JSON.stringify({
+      let database = "unbound";
+      if (env.DB) {
+        try {
+          await env.DB.prepare("SELECT 1 AS ok").first();
+          database = "connected";
+        } catch {
+          database = "error";
+        }
+      }
+
+      return jsonResponse({
         status: "online",
-        service: "Backoffice Telegram Bot & GSC Automation",
-        version: "2.0.0",
-        platform: "Cloudflare Workers Free Tier",
-        timestamp: new Date().toISOString(),
-        admin_id: "7862805424",
-        admin_handle: "@felixsnd",
-        group_link: "https://t.me/+ybOzZ_lstEdhNDU1",
-        commands: [
-          "/start", "/panel", "/reindex <domain>", "/ticket <kendala>",
-          "/status_ticket <id> <status>", "/gsc_inspect <domain>",
-          "/list_domains", "/report", "/trustpositif <domain>"
-        ]
-      }, null, 2), {
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+        service: "Backoffice Telegram Bot",
+        version: "2.1.0",
+        database,
+        timestamp: new Date().toISOString()
       });
     }
 
-    // 2. Setup Webhook Helper Endpoint (GET or POST /setup-webhook)
+    // The webhook secret is also required to access these maintenance endpoints.
     if (url.pathname === "/setup-webhook") {
-      const token = env.TELEGRAM_BOT_TOKEN || url.searchParams.get("token");
-      if (!token) {
-        return new Response(JSON.stringify({ error: "TELEGRAM_BOT_TOKEN belum diatur di env atau query param (?token=...)" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" }
-        });
+      if (request.method !== "POST") {
+        return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
       }
-      const webhookUrl = `${url.origin}/webhook`;
-      const tgRes = await fetch(`https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}&drop_pending_updates=true`);
-      const tgJson = await tgRes.json();
-      return new Response(JSON.stringify({
-        webhook_target: webhookUrl,
-        telegram_response: tgJson
-      }, null, 2), {
-        headers: { "Content-Type": "application/json" }
+
+      const secret = env.TELEGRAM_WEBHOOK_SECRET || "";
+      const token = env.TELEGRAM_BOT_TOKEN || "";
+      if (!secret || !token) {
+        return jsonResponse({ error: "Runtime secrets TELEGRAM_WEBHOOK_SECRET and TELEGRAM_BOT_TOKEN must be configured." }, 503);
+      }
+      if (!isAuthorizedMaintenanceRequest(request, secret)) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+
+      const webhookUrl = new URL("/webhook", url.origin).toString();
+      const telegramResponse = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: webhookUrl,
+          secret_token: secret,
+          allowed_updates: ["message"],
+          drop_pending_updates: false
+        })
       });
+      const result = await telegramResponse.json();
+      return jsonResponse({
+        webhook_url: webhookUrl,
+        telegram: result
+      }, telegramResponse.ok && result.ok ? 200 : 502);
     }
 
-    // 3. Webhook Info Helper Endpoint (GET /webhook-info)
     if (url.pathname === "/webhook-info") {
-      const token = env.TELEGRAM_BOT_TOKEN || url.searchParams.get("token");
-      if (!token) {
-        return new Response(JSON.stringify({ error: "TELEGRAM_BOT_TOKEN belum diatur" }), { status: 400 });
+      if (request.method !== "GET") {
+        return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET" } });
       }
-      const tgRes = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
-      const tgJson = await tgRes.json();
-      return new Response(JSON.stringify(tgJson, null, 2), {
-        headers: { "Content-Type": "application/json" }
-      });
+
+      const secret = env.TELEGRAM_WEBHOOK_SECRET || "";
+      const token = env.TELEGRAM_BOT_TOKEN || "";
+      if (!secret || !token) {
+        return jsonResponse({ error: "Runtime secrets TELEGRAM_WEBHOOK_SECRET and TELEGRAM_BOT_TOKEN must be configured." }, 503);
+      }
+      if (!isAuthorizedMaintenanceRequest(request, secret)) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+
+      const telegramResponse = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
+      const result = await telegramResponse.json();
+      return jsonResponse(result, telegramResponse.ok && result.ok ? 200 : 502);
     }
 
-    // 4. Handle Incoming Telegram Webhook (POST /webhook or POST /)
-    if (request.method === "POST" && (url.pathname === "/webhook" || url.pathname === "/")) {
+    if (url.pathname === "/webhook") {
+      if (request.method !== "POST") {
+        return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+      }
+
       const botToken = env.TELEGRAM_BOT_TOKEN || "";
-      if (!botToken) {
-        return new Response("Bot token not configured on worker env", { status: 500 });
+      const webhookSecret = env.TELEGRAM_WEBHOOK_SECRET || "";
+      if (!botToken || !webhookSecret) {
+        return new Response("Webhook secrets are not configured", { status: 503 });
       }
 
-      try {
-        const update = await request.json();
-        ctx.waitUntil(handleTelegramUpdate(update, botToken, env, url.origin));
-        return new Response("OK", { status: 200 });
-      } catch (err) {
-        return new Response(`Error: ${err.message}`, { status: 400 });
+      const receivedSecret = request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "";
+      if (!timingSafeEqual(receivedSecret, webhookSecret)) {
+        return new Response("Unauthorized", { status: 401 });
       }
+
+      let update;
+      try {
+        update = await request.json();
+      } catch {
+        return new Response("Invalid JSON", { status: 400 });
+      }
+
+      ctx.waitUntil(
+        handleTelegramUpdate(update, botToken, env, url.origin)
+          .catch((error) => console.error("Telegram update processing failed:", error))
+      );
+      return new Response("OK", { status: 200 });
     }
 
-    // Default 404
     return new Response("Not Found", { status: 404 });
   }
 };
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data, null, 2), {
+    status,
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }
+  });
+}
+
+function isAuthorizedMaintenanceRequest(request, secret) {
+  const authorization = request.headers.get("Authorization") || "";
+  return timingSafeEqual(authorization, `Bearer ${secret}`);
+}
+
+function timingSafeEqual(left, right) {
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  let mismatch = left.length ^ right.length;
+  const length = Math.max(left.length, right.length);
+  for (let i = 0; i < length; i += 1) {
+    mismatch |= (left.charCodeAt(i) || 0) ^ (right.charCodeAt(i) || 0);
+  }
+  return mismatch === 0;
+}
 
 /**
  * Handle incoming Telegram Update
@@ -104,10 +157,11 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
   const adminId = env.TELEGRAM_ADMIN_ID || "7862805424";
   const groupLink = env.TELEGRAM_GROUP_LINK || "https://t.me/+ybOzZ_lstEdhNDU1";
   const webAppUrl = env.TELEGRAM_WEBAPP_URL || "https://ais-pre-3jtqjse2yo4oegu26drysb-313938030691.asia-southeast1.run.app";
-  const baseDomain = env.BASE_DOMAIN || "panel-utama88.com";
+  const configuredBaseDomain = (env.BASE_DOMAIN || "").trim().toLowerCase();
+  const baseDomain = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,}$/i.test(configuredBaseDomain) ? configuredBaseDomain : "";
 
   const senderId = msg.from?.id ? String(msg.from.id) : "";
-  const isAdmin = (senderId === adminId || chatId === adminId);
+  const isAdmin = senderId === adminId;
 
   // Parse command & arguments
   const parts = text.split(/\s+/);
@@ -140,16 +194,19 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
     }
 
     case "/panel": {
+      if (!baseDomain) {
+        await sendTelegramMessage(botToken, chatId, "⚠️ Domain panel belum dikonfigurasi. Admin harus mengisi BASE_DOMAIN dengan domain yang valid di Runtime Variables.");
+        return;
+      }
+
       const panelUrl = `https://${baseDomain}/backoffice`;
       const tagsUrl = `https://${baseDomain}/backoffice/settings/marketing-tags`;
       const gscUrl = "https://search.google.com/search-console/welcome";
-
-      const panelText = `🌐 <b>Panel Backoffice & Marketing Settings</b>\n\n` +
-        `• <b>Domain Utama:</b> <code>${baseDomain}</code>\n` +
-        `• <b>Dashboard:</b> <a href="${panelUrl}">${panelUrl}</a>\n` +
-        `• <b>Marketing Tags:</b> <a href="${tagsUrl}">${tagsUrl}</a>\n` +
-        `• <b>Google Search Console:</b> <a href="${gscUrl}">${gscUrl}</a>\n\n` +
-        `Gunakan tombol di bawah untuk membuka panel langsung di Telegram:`;
+      const panelText = `🌐 <b>Panel Backoffice & Marketing Settings</b>\\n\\n` +
+        `• <b>Domain Utama:</b> <code>${escapeHtml(baseDomain)}</code>\\n` +
+        `• <b>Dashboard:</b> <a href="${panelUrl}">${panelUrl}</a>\\n` +
+        `• <b>Marketing Tags:</b> <a href="${tagsUrl}">${tagsUrl}</a>\\n` +
+        `• <b>Google Search Console:</b> <a href="${gscUrl}">${gscUrl}</a>`;
 
       await sendTelegramMessage(botToken, chatId, panelText, {
         inline_keyboard: [
@@ -215,57 +272,119 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
 
     case "/ticket": {
       if (args.length === 0) {
-        await sendTelegramMessage(botToken, chatId, `⚠️ <b>Format Salah</b>\nContoh: <code>/ticket Domain utama tidak bisa diakses dari ISP Telkomsel</code>`);
+        await sendTelegramMessage(botToken, chatId, "Format: /ticket tulis kendala yang dialami.");
+        return;
+      }
+      if (!env.DB) {
+        await sendTelegramMessage(botToken, chatId, "⛔ Database belum terhubung. Tiket belum dibuat.");
         return;
       }
 
-      const ticketIssue = args.join(" ");
-      const ticketId = `TKT-${Math.floor(1000 + Math.random() * 9000)}`;
+      const ticketIssue = args.join(" ").slice(0, 2000);
+      const now = Date.now();
+      let ticketId = "";
 
-      const ticketConfirm = `🎫 <b>TIKET KELUHAN BERHASIL DIBUAT</b>\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `• <b>ID Tiket:</b> <code>#${ticketId}</code>\n` +
-        `• <b>Pelapor:</b> ${fromUsername} (ID: <code>${chatId}</code>)\n` +
-        `• <b>Status:</b> 🟡 <b>OPEN</b>\n` +
-        `• <b>Kendala:</b> ${escapeHtml(ticketIssue)}\n` +
-        `• <b>Prioritas:</b> TINGGI\n` +
-        `• <b>Waktu:</b> ${new Date().toISOString()}\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `<i>Tim admin @felixsnd telah menerima notifikasi dan akan segera menindaklanjuti.</i>`;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const candidate = `TKT-${1000 + Math.floor(Math.random() * 9000)}`;
+        const inserted = await env.DB.prepare(
+          `INSERT OR IGNORE INTO member_tickets
+            (ticketCode, memberUsername, category, priority, domainAffected, issueDescription,
+             status, reportedVia, createdAt, lastUpdated, adminNotes, telegramUserId, telegramChatId)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          candidate,
+          fromUsername.slice(0, 80),
+          "Lainnya",
+          "TINGGI",
+          "",
+          ticketIssue,
+          "OPEN",
+          "TELEGRAM_BOT",
+          now,
+          now,
+          "",
+          senderId,
+          chatId
+        ).run();
 
-      // Reply to reporter
+        if (inserted.meta?.changes > 0) {
+          ticketId = candidate;
+          break;
+        }
+      }
+
+      if (!ticketId) {
+        await sendTelegramMessage(botToken, chatId, "⛔ Tiket gagal disimpan. Silakan kirim ulang beberapa saat lagi.");
+        return;
+      }
+
+      const ticketConfirm = `🎫 <b>TIKET BERHASIL DISIMPAN</b>\\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\\n` +
+        `• <b>ID Tiket:</b> <code>#${ticketId}</code>\\n` +
+        `• <b>Pelapor:</b> ${escapeHtml(fromUsername)}\\n` +
+        `• <b>Status:</b> 🟡 <b>OPEN</b>\\n` +
+        `• <b>Kendala:</b> ${escapeHtml(ticketIssue)}\\n` +
+        `• <b>Waktu:</b> ${new Date(now).toISOString()}\\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━`;
+
       await sendTelegramMessage(botToken, chatId, ticketConfirm);
-
-      // Alert Admin
       if (adminId && chatId !== adminId) {
-        await sendTelegramMessage(botToken, adminId, `🚨 <b>TIKET KELUHAN MEMBER BARU #${ticketId}</b>\n${ticketConfirm}`);
+        await sendTelegramMessage(botToken, adminId, `🚨 <b>TIKET BARU #${ticketId}</b>\\n${ticketConfirm}`);
       }
       break;
     }
 
     case "/status_ticket": {
-      const tktId = args[0] ? args[0].toUpperCase() : "";
-      const newStatus = args[1] ? args[1].toUpperCase() : "";
+      const ticketId = args[0] ? args[0].replace(/^#/, "").toUpperCase() : "";
+      const requestedStatus = args[1] ? args[1].toUpperCase() : "";
 
-      if (!tktId) {
-        await sendTelegramMessage(botToken, chatId, `ℹ️ <b>Format Perintah:</b> <code>/status_ticket &lt;ID_TIKET&gt; [STATUS]</code>\nContoh: <code>/status_ticket #TKT-4892 DIPROSES</code>`);
+      if (!ticketId) {
+        await sendTelegramMessage(botToken, chatId, "Format: /status_ticket TKT-1234 [OPEN|DIPROSES|SELESAI|DITOLAK]");
+        return;
+      }
+      if (!env.DB) {
+        await sendTelegramMessage(botToken, chatId, "⛔ Database belum terhubung.");
         return;
       }
 
-      if (newStatus && !isAdmin) {
-        await sendTelegramMessage(botToken, chatId, `⛔ <b>Akses Ditolak:</b> Hanya Administrator resmi (@felixsnd) yang berhak memperbarui status tiket member.`);
+      const ticket = await env.DB.prepare(
+        "SELECT ticketCode, status, telegramUserId, telegramChatId FROM member_tickets WHERE ticketCode = ? LIMIT 1"
+      ).bind(ticketId).first();
+
+      if (!ticket) {
+        await sendTelegramMessage(botToken, chatId, `Tiket <code>${escapeHtml(ticketId)}</code> tidak ditemukan.`);
         return;
       }
 
-      const displayStatus = newStatus || "DIPERIKSA";
-      const statusText = `📋 <b>STATUS TIKET ${tktId}</b>\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `• <b>Status Saat Ini:</b> 🟢 <b>${displayStatus}</b>\n` +
-        `• <b>Diperbarui Oleh:</b> ${fromUsername} ${isAdmin ? "(Admin Verified)" : "(User Check)"}\n` +
-        `• <b>Catatan:</b> ${newStatus ? "Status tiket berhasil diperbarui di sistem." : "Tiket sedang dalam penanganan tim operasional."}\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━`;
+      const isOwner = ticket.telegramUserId === senderId || ticket.telegramChatId === chatId;
+      if (!isAdmin && !isOwner) {
+        await sendTelegramMessage(botToken, chatId, "⛔ Anda tidak memiliki akses untuk melihat tiket ini.");
+        return;
+      }
 
-      await sendTelegramMessage(botToken, chatId, statusText);
+      let displayStatus = ticket.status;
+      if (requestedStatus) {
+        if (!isAdmin) {
+          await sendTelegramMessage(botToken, chatId, "⛔ Hanya admin yang dapat mengubah status tiket.");
+          return;
+        }
+        const allowedStatuses = ["OPEN", "DIPROSES", "SELESAI", "DITOLAK"];
+        if (!allowedStatuses.includes(requestedStatus)) {
+          await sendTelegramMessage(botToken, chatId, "Status tidak valid. Gunakan OPEN, DIPROSES, SELESAI, atau DITOLAK.");
+          return;
+        }
+
+        await env.DB.prepare(
+          "UPDATE member_tickets SET status = ?, lastUpdated = ? WHERE ticketCode = ?"
+        ).bind(requestedStatus, Date.now(), ticketId).run();
+        displayStatus = requestedStatus;
+      }
+
+      await sendTelegramMessage(
+        botToken,
+        chatId,
+        `📋 <b>STATUS TIKET ${escapeHtml(ticketId)}</b>\\n• Status: <b>${escapeHtml(displayStatus)}</b>`
+      );
       break;
     }
 
@@ -289,36 +408,53 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
     }
 
     case "/list_domains": {
-      const domainsText = `🌐 <b>Daftar Domain Terdaftar</b>\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `1. <code>${baseDomain}</code> [INDEXED / AKTIF]\n` +
-        `2. <code>vip88-alternatif.com</code> [SUBMITTED]\n` +
-        `3. <code>link-resmi-utama.net</code> [PENDING_CRAWL]\n` +
-        `4. <code>member-zone-secure.org</code> [NOT_INDEXED]\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `Gunakan <code>/reindex &lt;domain&gt;</code> untuk memicu permohonan crawling ulang GSC.`;
+      if (!env.DB) {
+        await sendTelegramMessage(botToken, chatId, "⛔ Database belum terhubung.");
+        return;
+      }
+      const result = await env.DB.prepare(
+        "SELECT domainName, status, gscIndexingStatus FROM domain_requests ORDER BY createdAt DESC LIMIT 20"
+      ).all();
+      const rows = result.results || [];
+      if (rows.length === 0) {
+        await sendTelegramMessage(botToken, chatId, "Belum ada domain yang terdaftar di database.");
+        return;
+      }
 
-      await sendTelegramMessage(botToken, chatId, domainsText);
+      const lines = rows.map((row, index) =>
+        `${index + 1}. <code>${escapeHtml(row.domainName)}</code> — ${escapeHtml(row.status)} / ${escapeHtml(row.gscIndexingStatus)}`
+      );
+      await sendTelegramMessage(botToken, chatId, `🌐 <b>DOMAIN DARI DATABASE</b>\\n${lines.join("\\n")}`);
       break;
     }
 
     case "/report": {
       if (!isAdmin) {
-        await sendTelegramMessage(botToken, chatId, `⛔ <b>Akses Ditolak:</b> Laporan eksekutif sistem hanya dapat diakses oleh Administrator resmi (@felixsnd).`);
+        await sendTelegramMessage(botToken, chatId, "⛔ Laporan hanya tersedia untuk admin.");
+        return;
+      }
+      if (!env.DB) {
+        await sendTelegramMessage(botToken, chatId, "⛔ Database belum terhubung.");
         return;
       }
 
-      const reportMsg = `📊 <b>EXECUTIVE SUMMARY LAPORAN HARIAN</b>\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `• <b>Platform Serverless:</b> Cloudflare Workers (Free Tier)\n` +
-        `• <b>Admin Otorisasi:</b> <code>${adminId}</code> (@felixsnd)\n` +
-        `• <b>Grup Telegram:</b> ${groupLink}\n` +
-        `• <b>Domain Terindeks GSC:</b> 1/4 Domain\n` +
-        `• <b>Status Server Backoffice:</b> ONLINE 200 OK\n` +
-        `• <b>Web App Mini-App:</b> AKTIF\n` +
-        `• <b>Waktu:</b> ${new Date().toISOString()}\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━`;
+      const totals = await env.DB.prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM member_tickets) AS total_tickets,
+          (SELECT COUNT(*) FROM member_tickets WHERE status = 'OPEN') AS open_tickets,
+          (SELECT COUNT(*) FROM domain_requests) AS total_domains,
+          (SELECT COUNT(*) FROM domain_requests WHERE status = 'ACTIVE') AS active_domains,
+          (SELECT COUNT(*) FROM gsc_submission_logs) AS gsc_audits`
+      ).first();
 
+      const reportMsg = `📊 <b>RINGKASAN DATABASE</b>\\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\\n` +
+        `• Total tiket: <b>${totals?.total_tickets ?? 0}</b>\\n` +
+        `• Tiket OPEN: <b>${totals?.open_tickets ?? 0}</b>\\n` +
+        `• Total domain: <b>${totals?.total_domains ?? 0}</b>\\n` +
+        `• Domain aktif: <b>${totals?.active_domains ?? 0}</b>\\n` +
+        `• Catatan audit GSC: <b>${totals?.gsc_audits ?? 0}</b>\\n` +
+        `• Waktu: ${new Date().toISOString()}`;
       await sendTelegramMessage(botToken, chatId, reportMsg);
       break;
     }
