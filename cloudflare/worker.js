@@ -158,7 +158,7 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
   const groupLink = env.TELEGRAM_GROUP_LINK || "https://t.me/+ybOzZ_lstEdhNDU1";
   const webAppUrl = env.TELEGRAM_WEBAPP_URL || "https://ais-pre-3jtqjse2yo4oegu26drysb-313938030691.asia-southeast1.run.app";
   const configuredBaseDomain = (env.BASE_DOMAIN || "").trim().toLowerCase();
-  const baseDomain = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,}$/i.test(configuredBaseDomain) ? configuredBaseDomain : "";
+  const baseDomain = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i.test(configuredBaseDomain) ? configuredBaseDomain : "";
 
   const senderId = msg.from?.id ? String(msg.from.id) : "";
   const isAdmin = senderId === adminId;
@@ -202,10 +202,10 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
       const panelUrl = `https://${baseDomain}/backoffice`;
       const tagsUrl = `https://${baseDomain}/backoffice/settings/marketing-tags`;
       const gscUrl = "https://search.google.com/search-console/welcome";
-      const panelText = `🌐 <b>Panel Backoffice & Marketing Settings</b>\\n\\n` +
-        `• <b>Domain Utama:</b> <code>${escapeHtml(baseDomain)}</code>\\n` +
-        `• <b>Dashboard:</b> <a href="${panelUrl}">${panelUrl}</a>\\n` +
-        `• <b>Marketing Tags:</b> <a href="${tagsUrl}">${tagsUrl}</a>\\n` +
+      const panelText = `🌐 <b>Panel Backoffice & Marketing Settings</b>\n\n` +
+        `• <b>Domain Utama:</b> <code>${escapeHtml(baseDomain)}</code>\n` +
+        `• <b>Dashboard:</b> <a href="${panelUrl}">${panelUrl}</a>\n` +
+        `• <b>Marketing Tags:</b> <a href="${tagsUrl}">${tagsUrl}</a>\n` +
         `• <b>Google Search Console:</b> <a href="${gscUrl}">${gscUrl}</a>`;
 
       await sendTelegramMessage(botToken, chatId, panelText, {
@@ -218,7 +218,11 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
     }
 
     case "/reindex": {
-      const targetDomain = args[0] ? args[0].replace(/^https?:\/\//, "").replace(/\/.*$/, "") : baseDomain;
+      const targetDomain = args[0] ? args[0].replace(/^https?:\/\//, "").replace(/\/.*$/, "").toLowerCase() : baseDomain;
+      if (!isValidDomainName(targetDomain)) {
+        await sendTelegramMessage(botToken, chatId, "Format: /reindex domainanda.com. Masukkan domain yang valid.");
+        return;
+      }
       const trackingCode = `GSC-CF-${Math.floor(100000 + Math.random() * 900000)}`;
 
       // Audit domain via live fetch
@@ -318,18 +322,18 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
         return;
       }
 
-      const ticketConfirm = `🎫 <b>TIKET BERHASIL DISIMPAN</b>\\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━\\n` +
-        `• <b>ID Tiket:</b> <code>#${ticketId}</code>\\n` +
-        `• <b>Pelapor:</b> ${escapeHtml(fromUsername)}\\n` +
-        `• <b>Status:</b> 🟡 <b>OPEN</b>\\n` +
-        `• <b>Kendala:</b> ${escapeHtml(ticketIssue)}\\n` +
-        `• <b>Waktu:</b> ${new Date(now).toISOString()}\\n` +
+      const ticketConfirm = `🎫 <b>TIKET BERHASIL DISIMPAN</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `• <b>ID Tiket:</b> <code>#${ticketId}</code>\n` +
+        `• <b>Pelapor:</b> ${escapeHtml(fromUsername)}\n` +
+        `• <b>Status:</b> 🟡 <b>OPEN</b>\n` +
+        `• <b>Kendala:</b> ${escapeHtml(ticketIssue)}\n` +
+        `• <b>Waktu:</b> ${new Date(now).toISOString()}\n` +
         `━━━━━━━━━━━━━━━━━━━━━━`;
 
       await sendTelegramMessage(botToken, chatId, ticketConfirm);
       if (adminId && chatId !== adminId) {
-        await sendTelegramMessage(botToken, adminId, `🚨 <b>TIKET BARU #${ticketId}</b>\\n${ticketConfirm}`);
+        await sendTelegramMessage(botToken, adminId, `🚨 <b>TIKET BARU #${ticketId}</b>\n${ticketConfirm}`);
       }
       break;
     }
@@ -356,7 +360,7 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
         return;
       }
 
-      const isOwner = ticket.telegramUserId === senderId || ticket.telegramChatId === chatId;
+      const isOwner = ticket.telegramUserId === senderId;
       if (!isAdmin && !isOwner) {
         await sendTelegramMessage(botToken, chatId, "⛔ Anda tidak memiliki akses untuk melihat tiket ini.");
         return;
@@ -383,16 +387,21 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
       await sendTelegramMessage(
         botToken,
         chatId,
-        `📋 <b>STATUS TIKET ${escapeHtml(ticketId)}</b>\\n• Status: <b>${escapeHtml(displayStatus)}</b>`
+        `📋 <b>STATUS TIKET ${escapeHtml(ticketId)}</b>\n• Status: <b>${escapeHtml(displayStatus)}</b>`
       );
       break;
     }
 
     case "/trustpositif": {
-      const targetDomain = args[0] ? args[0].replace(/^https?:\/\//, "").replace(/\/.*$/, "") : baseDomain;
+      const targetDomain = args[0] ? args[0].replace(/^https?:\/\//, "").replace(/\/.*$/, "").toLowerCase() : baseDomain;
+      if (!isValidDomainName(targetDomain)) {
+        await sendTelegramMessage(botToken, chatId, "Format: /trustpositif domainanda.com. Masukkan domain yang valid.");
+        return;
+      }
+      const safeTargetDomain = escapeHtml(targetDomain);
       const trustText = `🛡️ <b>Pengecekan TrustPositif (Kominfo)</b>\n` +
         `━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `• <b>Domain:</b> <code>${targetDomain}</code>\n` +
+        `• <b>Domain:</b> <code>${safeTargetDomain}</code>\n` +
         `• <b>Akses Database:</b> <a href="https://trustpositif.app/">https://trustpositif.app/</a>\n` +
         `• <b>Bot Rekomendasi:</b> <a href="https://t.me/reqweb_bot">@reqweb_bot</a>\n` +
         `━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -424,7 +433,7 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
       const lines = rows.map((row, index) =>
         `${index + 1}. <code>${escapeHtml(row.domainName)}</code> — ${escapeHtml(row.status)} / ${escapeHtml(row.gscIndexingStatus)}`
       );
-      await sendTelegramMessage(botToken, chatId, `🌐 <b>DOMAIN DARI DATABASE</b>\\n${lines.join("\\n")}`);
+      await sendTelegramMessage(botToken, chatId, `🌐 <b>DOMAIN DARI DATABASE</b>\n${lines.join("\n")}`);
       break;
     }
 
@@ -447,13 +456,13 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
           (SELECT COUNT(*) FROM gsc_submission_logs) AS gsc_audits`
       ).first();
 
-      const reportMsg = `📊 <b>RINGKASAN DATABASE</b>\\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━\\n` +
-        `• Total tiket: <b>${totals?.total_tickets ?? 0}</b>\\n` +
-        `• Tiket OPEN: <b>${totals?.open_tickets ?? 0}</b>\\n` +
-        `• Total domain: <b>${totals?.total_domains ?? 0}</b>\\n` +
-        `• Domain aktif: <b>${totals?.active_domains ?? 0}</b>\\n` +
-        `• Catatan audit GSC: <b>${totals?.gsc_audits ?? 0}</b>\\n` +
+      const reportMsg = `📊 <b>RINGKASAN DATABASE</b>\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `• Total tiket: <b>${totals?.total_tickets ?? 0}</b>\n` +
+        `• Tiket OPEN: <b>${totals?.open_tickets ?? 0}</b>\n` +
+        `• Total domain: <b>${totals?.total_domains ?? 0}</b>\n` +
+        `• Domain aktif: <b>${totals?.active_domains ?? 0}</b>\n` +
+        `• Catatan audit GSC: <b>${totals?.gsc_audits ?? 0}</b>\n` +
         `• Waktu: ${new Date().toISOString()}`;
       await sendTelegramMessage(botToken, chatId, reportMsg);
       break;
@@ -489,6 +498,11 @@ async function sendTelegramMessage(token, chatId, text, replyMarkup = null) {
     body: JSON.stringify(body)
   });
   return res.json();
+}
+
+function isValidDomainName(value) {
+  if (typeof value !== "string" || value.length > 253) return false;
+  return /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i.test(value);
 }
 
 function escapeHtml(str) {
