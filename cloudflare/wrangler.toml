@@ -3,9 +3,12 @@ main = "worker.js"
 compatibility_date = "2024-01-01"
 
 [vars]
-TELEGRAM_BOT_TOKEN = "9253264089:AAEuWSBfaKjn144vovRXAL2qrbnYS5mrXgY"
 TELEGRAM_ADMIN_ID = "7862805424"
 TELEGRAM_ADMIN_USERNAME = "felixsnd"
 TELEGRAM_GROUP_LINK = "https://t.me/+ybOzZ_lstEdhNDU1"
 TELEGRAM_WEBAPP_URL = "https://ais-pre-3jtqjse2yo4oegu26drysb-313938030691.asia-southeast1.run.app"
-BASE_DOMAIN = "panel-.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "adminku-db"
+database_id = "70751701-1ff7-412c-acaa-1b8bb583fc67"
