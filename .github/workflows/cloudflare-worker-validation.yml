@@ -1,0 +1,34 @@
+name: Cloudflare Worker Validation
+
+on:
+  pull_request:
+    paths:
+      - "cloudflare/**"
+      - ".github/workflows/cloudflare-worker-validation.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "cloudflare/**"
+      - ".github/workflows/cloudflare-worker-validation.yml"
+
+jobs:
+  validate-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check JavaScript syntax
+        working-directory: cloudflare
+        run: node --check worker.js
+
+      - name: Validate Wrangler configuration without deployment
+        working-directory: cloudflare
+        run: npx --yes wrangler@latest deploy --dry-run
