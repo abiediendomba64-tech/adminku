@@ -277,14 +277,14 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
         httpStatus = `Error: ${err.message}`;
       }
 
-      const reportText = `⚡ <b>[LAPORAN RE-INDEXING GSC]</b>\n` +
+      const reportText = `⚡ <b>[AUDIT DOMAIN PRA-GSC]</b>\n` +
         `━━━━━━━━━━━━━━━━━━━━━━\n` +
         `• <b>Domain:</b> <code>${targetDomain}</code>\n` +
-        `• <b>Tracking ID:</b> <code>#${trackingCode}</code>\n` +
+        `• <b>Referensi Audit Lokal:</b> <code>#${trackingCode}</code>\n` +
         `• <b>HTTP Status:</b> <code>${httpStatus}</code>\n` +
         `• <b>Meta Verification:</b> ${metaTagFound ? "✅ TERDETEKSI" : "⚠️ BELUM TERDETEKSI"}\n` +
         `• <b>Sitemap.xml:</b> ${sitemapFound ? "✅ VALID" : "❌ TIDAK DITEMUKAN"}\n` +
-        `• <b>Status Antrean GSC:</b> ⏳ PENDING_CRAWL\n` +
+        `• <b>Status API GSC:</b> TIDAK ADA PERMINTAAN INDEXING YANG DIKIRIM\n` +
         `• <b>Dipicu oleh:</b> ${fromUsername} (Cloudflare Worker 24/7)\n` +
         `• <b>Waktu:</b> ${new Date().toISOString()}\n` +
         `━━━━━━━━━━━━━━━━━━━━━━\n` +
