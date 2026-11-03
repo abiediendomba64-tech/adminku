@@ -141,6 +141,23 @@ function timingSafeEqual(left, right) {
 }
 
 /**
+ * Admin authorization uses numeric Telegram user IDs, not usernames.
+ * TELEGRAM_ADMIN_ID remains supported for backwards compatibility.
+ * TELEGRAM_ADMIN_IDS accepts comma-separated additional admin IDs.
+ */
+function getAdminIds(env) {
+  const configuredIds = [
+    env.TELEGRAM_ADMIN_ID || "7862805424",
+    ...(env.TELEGRAM_ADMIN_IDS || "").split(",")
+  ];
+  return new Set(
+    configuredIds
+      .map((value) => String(value).trim())
+      .filter((value) => /^\d+$/.test(value))
+  );
+}
+
+/**
  * Handle incoming Telegram Update
  */
 async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
@@ -154,6 +171,7 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
 
   if (!chatId || !text) return;
 
+  const adminIds = getAdminIds(env);
   const adminId = env.TELEGRAM_ADMIN_ID || "7862805424";
   const groupLink = env.TELEGRAM_GROUP_LINK || "https://t.me/+ybOzZ_lstEdhNDU1";
   const webAppUrl = env.TELEGRAM_WEBAPP_URL || "https://ais-pre-3jtqjse2yo4oegu26drysb-313938030691.asia-southeast1.run.app";
@@ -161,7 +179,7 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
   const baseDomain = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i.test(configuredBaseDomain) ? configuredBaseDomain : "";
 
   const senderId = msg.from?.id ? String(msg.from.id) : "";
-  const isAdmin = senderId === adminId;
+  const isAdmin = adminIds.has(senderId);
 
   // Parse command & arguments
   const parts = text.split(/\s+/);
