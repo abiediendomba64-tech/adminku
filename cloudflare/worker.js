@@ -184,6 +184,10 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
   const adminId = env.TELEGRAM_ADMIN_ID || "7862805424";
   const groupLink = env.TELEGRAM_GROUP_LINK || "https://t.me/+ybOzZ_lstEdhNDU1";
   const webAppUrl = env.TELEGRAM_WEBAPP_URL || "https://ais-pre-3jtqjse2yo4oegu26drysb-313938030691.asia-southeast1.run.app";
+  const configuredReqWebBotUrl = (env.REQWEB_BOT_URL || "https://t.me/reqweb_bot").trim();
+  const reqWebBotUrl = /^https:\/\/t\.me\/[A-Za-z0-9_]+\/?$/.test(configuredReqWebBotUrl)
+    ? configuredReqWebBotUrl
+    : "https://t.me/reqweb_bot";
   const configuredBaseDomain = (env.BASE_DOMAIN || "").trim().toLowerCase();
   const baseDomain = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i.test(configuredBaseDomain) ? configuredBaseDomain : "";
 
@@ -205,6 +209,7 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
         `• <code>/reindex &lt;domain&gt;</code> — Trigger re-indexing GSC & audit domain\n` +
         `• <code>/ticket &lt;kendala&gt;</code> — Buat tiket keluhan member (Auto-assign ID #TKT)\n` +
         `• <code>/status_ticket &lt;id&gt; &lt;status&gt;</code> — Cek/update status tiket\n` +
+        `• <code>/reqweb [rincian]</code> — Buka layanan eksternal @reqweb_bot untuk permintaan web\n` +
         `• <code>/gsc_inspect &lt;domain&gt;</code> — Inspeksi Google Search Console\n` +
         `• <code>/trustpositif &lt;domain&gt;</code> — Cek database blokir Kominfo\n` +
         `• <code>/list_domains</code> — Daftar domain aktif\n` +
@@ -223,7 +228,30 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
       await sendTelegramMessage(botToken, chatId, welcomeText, {
         inline_keyboard: [
           [{ text: "🌐 Buka Panel Web App", web_app: { url: webAppUrl } }],
+          [{ text: "🛠️ Layanan ReqWeb", url: reqWebBotUrl }],
           [{ text: "💬 Hubungi Admin (@felixsnd)", url: "https://t.me/felixsnd" }]
+        ]
+      });
+      break;
+    }
+
+    case "/reqweb": {
+      const requestDetails = args.join(" ").trim().slice(0, 1200);
+      const reqWebText = requestDetails
+        ? "🛠️ <b>LAYANAN PERMINTAAN WEB — REQWEB</b>\n" +
+          "Rincian yang Anda tulis:\n<pre>" + escapeHtml(requestDetails) + "</pre>\n" +
+          "Buka bot ReqWeb, lalu kirim rincian tersebut langsung di percakapan ReqWeb.\n\n" +
+          "<i>Catatan: Adminku hanya membuka tautan ke bot eksternal. Pengiriman permintaan dan status pengerjaan belum tersinkron otomatis ke database Adminku.</i>"
+        : "🛠️ <b>LAYANAN PERMINTAAN WEB — REQWEB</b>\n" +
+          "Gunakan bot ReqWeb untuk mengirim permintaan web/website.\n\n" +
+          "Anda juga dapat menambahkan rincian setelah perintah, misalnya:\n" +
+          "<code>/reqweb Buat landing page untuk domain contoh.com</code>\n\n" +
+          "<i>Adminku membuka layanan eksternal; rincian harus Anda kirim sendiri ke ReqWeb.</i>\n" +
+          "Untuk mencatat kendala secara internal, gunakan <code>/ticket [rincian]</code> di chat Adminku.";
+
+      await sendTelegramMessage(botToken, chatId, reqWebText, {
+        inline_keyboard: [
+          [{ text: "🛠️ Buka @reqweb_bot", url: reqWebBotUrl }]
         ]
       });
       break;
@@ -692,7 +720,7 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
       await sendTelegramMessage(botToken, chatId, trustText, {
         inline_keyboard: [
           [{ text: "🔍 Buka trustpositif.app", url: "https://trustpositif.app/" }],
-          [{ text: "🤖 Buka @reqweb_bot", url: "https://t.me/reqweb_bot" }]
+          [{ text: "🤖 Buka @reqweb_bot", url: reqWebBotUrl }]
         ]
       });
       break;

@@ -9,6 +9,7 @@ TELEGRAM_ADMIN_IDS = "8177955807"
 TELEGRAM_ADMIN_USERNAME = "felixsnd"
 TELEGRAM_GROUP_LINK = "https://t.me/+ybOzZ_lstEdhNDU1"
 TELEGRAM_WEBAPP_URL = "https://ais-pre-3jtqjse2yo4oegu26drysb-313938030691.asia-southeast1.run.app"
+REQWEB_BOT_URL = "https://t.me/reqweb_bot"
 
 [[d1_databases]]
 binding = "DB"

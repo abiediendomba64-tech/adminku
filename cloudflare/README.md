@@ -32,6 +32,17 @@ Cloudflare Workers menyediakan kuota **100.000 request/hari GRATIS** dengan late
 
 ---
 
+### Integrasi layanan eksternal ReqWeb
+
+Worker menyediakan perintah `/reqweb [rincian]` dan tombol **Layanan ReqWeb** pada pesan `/start`. Pengaturan URL melalui Runtime Variable `REQWEB_BOT_URL` (default `https://t.me/reqweb_bot`).
+
+Integrasi ini adalah **handoff tautan**: Adminku menampilkan rincian agar pengguna dapat mengirimkannya sendiri ke bot ReqWeb. Belum ada API resmi atau sinkronisasi status permintaan ReqWeb ke D1. Untuk integrasi otomatis diperlukan dokumentasi API/webhook dan persetujuan pemilik `@reqweb_bot`. Jangan mengirim token, password, kode OTP, atau kredensial melalui bot eksternal.
+
+Perintah BotFather yang disarankan untuk ditambahkan lewat `/setcommands`:
+```text
+reqweb - Buka layanan permintaan web
+```
+
 ### Cara 2: Deploy Lewat Terminal / Wrangler CLI
 
 ```bash
@@ -56,6 +67,7 @@ npx wrangler secret put TELEGRAM_BOT_TOKEN
 - `/reindex <domain>` : Live audit kode HTTP, tag verifikasi Google Search Console, sitemap, dan alert admin.
 - `/ticket <kendala>` : Auto-assign tiket `#TKT-XXXX` & alert admin `7862805424` serta grup Telegram.
 - `/status_ticket <id> <status>` : Status update tiket keluhan.
+- `/reqweb [rincian]` : Tombol penghubung ke bot eksternal `@reqweb_bot`; rincian ditampilkan agar pengguna dapat mengirimkannya sendiri.
 - `/trustpositif <domain>` : Link cepat ke database TrustPositif & bot `@reqweb_bot`.
 - `/list_domains` : List domain aktif & status indexing.
 - `/report` : Ringkasan harian sistem.
