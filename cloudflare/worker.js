@@ -32,18 +32,23 @@ export default {
       });
     }
 
-    // The webhook secret is also required to access these maintenance endpoints.
+    // Maintenance endpoints use a dedicated admin secret. The Telegram webhook secret
+    // is reserved for authenticating incoming updates from Telegram.
     if (url.pathname === "/setup-webhook") {
       if (request.method !== "POST") {
         return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
       }
 
-      const secret = env.TELEGRAM_WEBHOOK_SECRET || "";
+      const adminSecret = env.WEBHOOK_ADMIN_SECRET || "";
+      const webhookSecret = env.TELEGRAM_WEBHOOK_SECRET || "";
       const token = env.TELEGRAM_BOT_TOKEN || "";
-      if (!secret || !token) {
-        return jsonResponse({ error: "Runtime secrets TELEGRAM_WEBHOOK_SECRET and TELEGRAM_BOT_TOKEN must be configured." }, 503);
+      if (!adminSecret || !webhookSecret || !token) {
+        return jsonResponse({ error: "Runtime secrets WEBHOOK_ADMIN_SECRET, TELEGRAM_WEBHOOK_SECRET, and TELEGRAM_BOT_TOKEN must be configured." }, 503);
       }
-      if (!isAuthorizedMaintenanceRequest(request, secret)) {
+      if (adminSecret === webhookSecret) {
+        return jsonResponse({ error: "WEBHOOK_ADMIN_SECRET and TELEGRAM_WEBHOOK_SECRET must be different values." }, 503);
+      }
+      if (!isAuthorizedMaintenanceRequest(request, adminSecret)) {
         return jsonResponse({ error: "Unauthorized" }, 401);
       }
 
@@ -53,7 +58,7 @@ export default {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url: webhookUrl,
-          secret_token: secret,
+          secret_token: webhookSecret,
           allowed_updates: ["message"],
           drop_pending_updates: false
         })
@@ -70,12 +75,16 @@ export default {
         return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET" } });
       }
 
-      const secret = env.TELEGRAM_WEBHOOK_SECRET || "";
+      const adminSecret = env.WEBHOOK_ADMIN_SECRET || "";
+      const webhookSecret = env.TELEGRAM_WEBHOOK_SECRET || "";
       const token = env.TELEGRAM_BOT_TOKEN || "";
-      if (!secret || !token) {
-        return jsonResponse({ error: "Runtime secrets TELEGRAM_WEBHOOK_SECRET and TELEGRAM_BOT_TOKEN must be configured." }, 503);
+      if (!adminSecret || !token) {
+        return jsonResponse({ error: "Runtime secrets WEBHOOK_ADMIN_SECRET and TELEGRAM_BOT_TOKEN must be configured." }, 503);
       }
-      if (!isAuthorizedMaintenanceRequest(request, secret)) {
+      if (webhookSecret && adminSecret === webhookSecret) {
+        return jsonResponse({ error: "WEBHOOK_ADMIN_SECRET and TELEGRAM_WEBHOOK_SECRET must be different values." }, 503);
+      }
+      if (!isAuthorizedMaintenanceRequest(request, adminSecret)) {
         return jsonResponse({ error: "Unauthorized" }, 401);
       }
 

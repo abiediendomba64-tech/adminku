@@ -13,18 +13,22 @@ Cloudflare Workers menyediakan kuota **100.000 request/hari GRATIS** dengan late
 5. Hapus semua kode bawaan, lalu salin (paste) seluruh isi file `cloudflare/worker.js`.
 6. Klik tombol **Deploy** di pojok kanan atas.
 7. Masuk ke tab **Settings** -> **Variables and Secrets** di worker Anda:
-   - Tambahkan Environment Variable:
-     - `TELEGRAM_BOT_TOKEN`: Masukkan token bot dari @BotFather
+   - Tambahkan **Runtime Secrets** (nilai tidak boleh ditaruh di GitHub, kode aplikasi, atau chat):
+     - `TELEGRAM_BOT_TOKEN`: Token bot dari @BotFather.
+     - `TELEGRAM_WEBHOOK_SECRET`: Secret khusus untuk header autentikasi update webhook dari Telegram.
+     - `WEBHOOK_ADMIN_SECRET`: Secret admin yang **berbeda nilainya** dari `TELEGRAM_WEBHOOK_SECRET`; dipakai hanya untuk endpoint pemeliharaan.
+   - Tambahkan **Runtime Variables**:
      - `TELEGRAM_ADMIN_ID`: `7862805424`
      - `TELEGRAM_ADMIN_USERNAME`: `felixsnd`
      - `TELEGRAM_GROUP_LINK`: `https://t.me/+ybOzZ_lstEdhNDU1`
      - `TELEGRAM_WEBAPP_URL`: `https://ais-pre-3jtqjse2yo4oegu26drysb-313938030691.asia-southeast1.run.app`
      - `BASE_DOMAIN`: `panel-utama88.com`
    - Klik **Save and deploy**.
-8. Hubungkan Webhook Telegram ke Cloudflare:
-   - Buka URL berikut di browser Anda:
-     `https://<worker-anda>.workers.dev/setup-webhook`
-   - Atau gunakan tombol **"Pasang Webhook ke Cloudflare"** langsung di aplikasi Android ini!
+8. Hubungkan Webhook Telegram ke Cloudflare menggunakan request terautentikasi:
+   - `POST https://<worker-anda>.workers.dev/setup-webhook`
+   - Header: `Authorization: Bearer <WEBHOOK_ADMIN_SECRET>`
+   - Untuk memeriksa konfigurasi: `GET https://<worker-anda>.workers.dev/webhook-info` dengan header Authorization yang sama.
+   - Jangan gunakan `TELEGRAM_WEBHOOK_SECRET` untuk mengakses endpoint admin. Secret itu tetap dipakai Worker untuk memvalidasi header `X-Telegram-Bot-Api-Secret-Token` dari Telegram.
 
 ---
 
