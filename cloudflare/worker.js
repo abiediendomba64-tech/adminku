@@ -200,12 +200,15 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
         `• <code>/trustpositif &lt;domain&gt;</code> — Cek database blokir Kominfo\n` +
         `• <code>/list_domains</code> — Daftar domain aktif\n` +
         `• <code>/report</code> — Ringkasan sistem & tiket ke admin\n\n` +
-        (isAdmin ? `\\n\\n<b>Google Search Console (Admin):</b>\\n` +
-          `• <code>/gsc_test</code> — Tes koneksi API\\n` +
-          `• <code>/gsc_sites</code> — Daftar properti\\n` +
-          `• <code>/gsc_inspect &lt;URL&gt; [properti]</code> — Periksa status indeks\\n` +
-          `• <code>/gsc_sitemaps &lt;properti&gt;</code> — Daftar sitemap\\n` +
-          `• <code>/gsc_submit_sitemap &lt;properti&gt; &lt;URL&gt;</code> — Kirim sitemap` : ``) +
+        (isAdmin ? `
+
+<b>Google Search Console (Admin):</b>
+          • <code>/gsc_test</code> — Tes koneksi API
+          • <code>/gsc_sites</code> — Daftar properti
+          • <code>/gsc_inspect &lt;URL&gt; [properti]</code> — Periksa status indeks
+          • <code>/gsc_sitemaps &lt;properti&gt;</code> — Daftar sitemap
+          • <code>/gsc_submit_sitemap &lt;properti&gt; &lt;URL&gt;</code> — Kirim sitemap
+` : ``) +
         `Klik tombol di bawah untuk membuka Web App interaktif:`;
 
       await sendTelegramMessage(botToken, chatId, welcomeText, {
@@ -242,6 +245,10 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
     }
 
     case "/reindex": {
+      if (!isAdmin) {
+        await sendTelegramMessage(botToken, chatId, "⛔ Audit domain hanya tersedia untuk admin.");
+        return;
+      }
       const targetDomain = args[0] ? args[0].replace(/^https?:\/\//, "").replace(/\/.*$/, "").toLowerCase() : baseDomain;
       if (!isValidDomainName(targetDomain)) {
         await sendTelegramMessage(botToken, chatId, "Format: /reindex domainanda.com. Masukkan domain yang valid.");
@@ -683,6 +690,10 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
     }
 
     case "/list_domains": {
+      if (!isAdmin) {
+        await sendTelegramMessage(botToken, chatId, "⛔ Daftar domain hanya tersedia untuk admin.");
+        return;
+      }
       if (!env.DB) {
         await sendTelegramMessage(botToken, chatId, "⛔ Database belum terhubung.");
         return;
