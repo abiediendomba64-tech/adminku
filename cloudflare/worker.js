@@ -200,6 +200,12 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
         `• <code>/trustpositif &lt;domain&gt;</code> — Cek database blokir Kominfo\n` +
         `• <code>/list_domains</code> — Daftar domain aktif\n` +
         `• <code>/report</code> — Ringkasan sistem & tiket ke admin\n\n` +
+        (isAdmin ? `\\n\\n<b>Google Search Console (Admin):</b>\\n` +
+          `• <code>/gsc_test</code> — Tes koneksi API\\n` +
+          `• <code>/gsc_sites</code> — Daftar properti\\n` +
+          `• <code>/gsc_inspect &lt;URL&gt; [properti]</code> — Periksa status indeks\\n` +
+          `• <code>/gsc_sitemaps &lt;properti&gt;</code> — Daftar sitemap\\n` +
+          `• <code>/gsc_submit_sitemap &lt;properti&gt; &lt;URL&gt;</code> — Kirim sitemap` : ``) +
         `Klik tombol di bawah untuk membuka Web App interaktif:`;
 
       await sendTelegramMessage(botToken, chatId, welcomeText, {
@@ -275,7 +281,7 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
         `• <b>Dipicu oleh:</b> ${fromUsername} (Cloudflare Worker 24/7)\n` +
         `• <b>Waktu:</b> ${new Date().toISOString()}\n` +
         `━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `<i>Admin diinstruksikan untuk memantau URL Inspection di Google Search Console.</i>`;
+        `<i>Ini hanya audit HTTP/meta/sitemap. Tidak ada permintaan indexing yang dikirim ke Google. Gunakan /gsc_inspect dan /gsc_submit_sitemap.</i>`;
 
       // 1. Reply to sender
       await sendTelegramMessage(botToken, chatId, reportText, {
@@ -410,6 +416,248 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
       break;
     }
 
+
+    case "/gsc_test": {
+      if (!isAdmin) {
+        await sendTelegramMessage(botToken, chatId, "⛔ Perintah Google Search Console hanya tersedia untuk admin.");
+        return;
+      }
+      try {
+        const accessToken = await getGoogleAccessToken(env);
+        const result = await googleSearchConsoleRequest(accessToken, "GET", "https://www.googleapis.com/webmasters/v3/sites");
+        const sites = result.data.siteEntry || [];
+        await sendTelegramMessage(botToken, chatId,
+          "✅ <b>GSC API TERHUBUNG</b>\n" +
+          "• Autentikasi OAuth: berhasil\n" +
+          "• Search Console API: HTTP " + result.status + "\n" +
+          "• Properti dapat diakses: <b>" + sites.length + "</b>\n\n" +
+          "<i>Ini membuktikan API dapat diakses; bukan bukti setiap properti sudah terverifikasi.</i>");
+      } catch (error) {
+        await sendTelegramMessage(botToken, chatId,
+          "❌ <b>GSC API BELUM SIAP</b>\n" + escapeHtml(error.message || "Autentikasi atau permintaan Google gagal.") + "\n\n" +
+          "Periksa GSC_CLIENT_ID, GSC_CLIENT_SECRET, GSC_REFRESH_TOKEN dan izin Search Console akun Google.");
+      }
+      break;
+    }
+
+    case "/gsc_sites": {
+      if (!isAdmin) {
+        await sendTelegramMessage(botToken, chatId, "⛔ Perintah Google Search Console hanya tersedia untuk admin.");
+        return;
+      }
+      try {
+        const accessToken = await getGoogleAccessToken(env);
+        const result = await googleSearchConsoleRequest(accessToken, "GET", "https://www.googleapis.com/webmasters/v3/sites");
+        const sites = result.data.siteEntry || [];
+        if (sites.length === 0) {
+          await sendTelegramMessage(botToken, chatId,
+            "Belum ada properti Search Console yang dapat diakses oleh akun OAuth Adminku.");
+          return;
+        }
+        const lines = sites.slice(0, 25).map((site, index) =>
+          (index + 1) + ". <code>" + escapeHtml(site.siteUrl || "(site tidak diketahui)") + "</code>\n" +
+          "   Izin: <b>" + escapeHtml(site.permissionLevel || "UNKNOWN") + "</b>"
+        );
+        await sendTelegramMessage(botToken, chatId,
+          "🌐 <b>PROPERTI GOOGLE SEARCH CONSOLE (" + sites.length + ")</b>\n\n" + lines.join("\n") +
+          (sites.length > 25 ? "\n\n<i>Menampilkan 25 properti pertama.</i>" : ""));
+      } catch (error) {
+        await sendTelegramMessage(botToken, chatId,
+          "❌ Gagal membaca daftar properti GSC:\n" + escapeHtml(error.message || "Permintaan Google gagal."));
+      }
+      break;
+    }
+
+    case "/gsc_inspect": {
+      if (!isAdmin) {
+        await sendTelegramMessage(botToken, chatId, "⛔ Perintah Google Search Console hanya tersedia untuk admin.");
+        return;
+      }
+      if (!args[0]) {
+        await sendTelegramMessage(botToken, chatId,
+          "Format: <code>/gsc_inspect https://mami44.com/halaman</code>\n" +
+          "Opsional properti: <code>/gsc_inspect https://mami44.com/halaman https://mami44.com/</code>\n" +
+          "Untuk Domain Property, gunakan <code>sc-domain:mami44.com</code> sebagai argumen kedua.");
+        return;
+      }
+      if (!env.DB) {
+        await sendTelegramMessage(botToken, chatId, "⛔ D1 belum terhubung; hasil tidak dapat dicatat.");
+        return;
+      }
+      try {
+        const inspectionUrl = normalizeGscInspectionUrl(args[0]);
+        const siteUrl = normalizeGscSiteProperty(args[1] || (new URL(inspectionUrl).origin + "/"));
+        if (!isUrlWithinGscProperty(inspectionUrl, siteUrl)) {
+          throw new Error("URL yang diperiksa tidak berada di dalam properti Search Console yang dipilih.");
+        }
+
+        const accessToken = await getGoogleAccessToken(env);
+        const apiResult = await googleSearchConsoleRequest(accessToken, "POST",
+          "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect",
+          { inspectionUrl: inspectionUrl, siteUrl: siteUrl, languageCode: "id-ID" });
+        const inspection = apiResult.data.inspectionResult || {};
+        const indexStatus = inspection.indexStatusResult || {};
+        const propertyHome = getGscPropertyHomepage(siteUrl);
+        const publicSignals = await inspectPublicGscSignals(propertyHome);
+        let sitemapCount = 0;
+        let sitemapCheckNote = "Sitemap tidak diperiksa.";
+        try {
+          const sitemapResult = await googleSearchConsoleRequest(accessToken, "GET",
+            "https://www.googleapis.com/webmasters/v3/sites/" + encodeURIComponent(siteUrl) + "/sitemaps");
+          sitemapCount = (sitemapResult.data.sitemap || []).length;
+          sitemapCheckNote = "Sitemap terdaftar di Search Console: " + sitemapCount;
+        } catch (sitemapError) {
+          sitemapCheckNote = "Pemeriksaan daftar sitemap gagal: " + sitemapError.message;
+        }
+
+        const trackingId = createGscTrackingId();
+        const diagnostic = {
+          source: "Google Search Console URL Inspection API",
+          apiHttpStatus: apiResult.status,
+          inspectionUrl: inspectionUrl,
+          siteUrl: siteUrl,
+          verdict: indexStatus.verdict || "UNKNOWN",
+          coverageState: indexStatus.coverageState || "",
+          indexingState: indexStatus.indexingState || "",
+          pageFetchState: indexStatus.pageFetchState || "",
+          robotsTxtState: indexStatus.robotsTxtState || "",
+          lastCrawlTime: indexStatus.lastCrawlTime || null,
+          googleCanonical: indexStatus.googleCanonical || "",
+          userCanonical: indexStatus.userCanonical || "",
+          sitemapCount: sitemapCount,
+          sitemapCheckNote: sitemapCheckNote,
+          publicPageHttpStatus: publicSignals.httpStatus,
+          googleVerificationMetaTagFound: publicSignals.verificationTagFound
+        };
+        await saveGscSubmissionLog(env, {
+          url: inspectionUrl,
+          domain: getGscPropertyDomain(siteUrl),
+          httpStatus: publicSignals.httpStatus,
+          verificationTagFound: publicSignals.verificationTagFound ? 1 : 0,
+          sitemapDetected: sitemapCount > 0 ? 1 : 0,
+          indexingStatus: indexStatus.verdict || "UNKNOWN",
+          diagnosticMessage: JSON.stringify(diagnostic),
+          gscTrackingId: trackingId
+        });
+
+        await sendTelegramMessage(botToken, chatId,
+          "🔎 <b>HASIL URL INSPECTION GOOGLE</b>\n" +
+          "• URL: <code>" + escapeHtml(inspectionUrl) + "</code>\n" +
+          "• Properti: <code>" + escapeHtml(siteUrl) + "</code>\n" +
+          "• Verdict indeks: <b>" + escapeHtml(indexStatus.verdict || "UNKNOWN") + "</b>\n" +
+          "• Coverage: " + escapeHtml(indexStatus.coverageState || "-") + "\n" +
+          "• Indexing state: " + escapeHtml(indexStatus.indexingState || "-") + "\n" +
+          "• Last crawl: " + escapeHtml(indexStatus.lastCrawlTime || "-") + "\n" +
+          "• HTTP halaman saat diperiksa: " + (publicSignals.httpStatus || "Tidak terjangkau") + "\n" +
+          "• Meta verification tag ditemukan: " + (publicSignals.verificationTagFound ? "Ya" : "Tidak") + "\n" +
+          "• " + escapeHtml(sitemapCheckNote) + "\n" +
+          "• Tracking ID: <code>" + trackingId + "</code>\n\n" +
+          "<i>URL Inspection membaca status URL dalam indeks Google; ini bukan tombol Request Indexing.</i>");
+      } catch (error) {
+        await sendTelegramMessage(botToken, chatId,
+          "❌ URL Inspection gagal:\n" + escapeHtml(error.message || "Permintaan Google gagal."));
+      }
+      break;
+    }
+
+    case "/gsc_sitemaps": {
+      if (!isAdmin) {
+        await sendTelegramMessage(botToken, chatId, "⛔ Perintah Google Search Console hanya tersedia untuk admin.");
+        return;
+      }
+      if (!args[0]) {
+        await sendTelegramMessage(botToken, chatId,
+          "Format: <code>/gsc_sitemaps https://mami44.com/</code>\n" +
+          "Untuk Domain Property: <code>/gsc_sitemaps sc-domain:mami44.com</code>");
+        return;
+      }
+      try {
+        const siteUrl = normalizeGscSiteProperty(args[0]);
+        const accessToken = await getGoogleAccessToken(env);
+        const result = await googleSearchConsoleRequest(accessToken, "GET",
+          "https://www.googleapis.com/webmasters/v3/sites/" + encodeURIComponent(siteUrl) + "/sitemaps");
+        const sitemaps = result.data.sitemap || [];
+        if (sitemaps.length === 0) {
+          await sendTelegramMessage(botToken, chatId,
+            "Belum ada sitemap yang tercatat di Search Console untuk <code>" + escapeHtml(siteUrl) + "</code>.");
+          return;
+        }
+        const lines = sitemaps.slice(0, 20).map((item, index) =>
+          (index + 1) + ". <code>" + escapeHtml(item.path || "(URL tidak tersedia)") + "</code>\n" +
+          "   Status: " + escapeHtml(item.isPending ? "PENDING" : "TERCATAT") + "\n" +
+          "   Terakhir dikirim: " + escapeHtml(item.lastSubmitted || "-") + "\n" +
+          "   Terakhir diunduh: " + escapeHtml(item.lastDownloaded || "-")
+        );
+        await sendTelegramMessage(botToken, chatId,
+          "🗺️ <b>SITEMAP SEARCH CONSOLE</b>\nProperti: <code>" + escapeHtml(siteUrl) + "</code>\n\n" +
+          lines.join("\n") + (sitemaps.length > 20 ? "\n\n<i>Menampilkan 20 sitemap pertama.</i>" : ""));
+      } catch (error) {
+        await sendTelegramMessage(botToken, chatId,
+          "❌ Gagal membaca sitemap Search Console:\n" + escapeHtml(error.message || "Permintaan Google gagal."));
+      }
+      break;
+    }
+
+    case "/gsc_submit_sitemap": {
+      if (!isAdmin) {
+        await sendTelegramMessage(botToken, chatId, "⛔ Perintah Google Search Console hanya tersedia untuk admin.");
+        return;
+      }
+      if (!args[0] || !args[1]) {
+        await sendTelegramMessage(botToken, chatId,
+          "Format: <code>/gsc_submit_sitemap https://mami44.com/ https://mami44.com/sitemap.xml</code>\n" +
+          "Untuk Domain Property: <code>/gsc_submit_sitemap sc-domain:mami44.com https://mami44.com/sitemap.xml</code>");
+        return;
+      }
+      if (!env.DB) {
+        await sendTelegramMessage(botToken, chatId, "⛔ D1 belum terhubung; hasil pengiriman tidak dapat dicatat.");
+        return;
+      }
+      try {
+        const siteUrl = normalizeGscSiteProperty(args[0]);
+        const sitemapUrl = normalizeGscInspectionUrl(args[1]);
+        if (!isUrlWithinGscProperty(sitemapUrl, siteUrl)) {
+          throw new Error("URL sitemap tidak berada di dalam properti Search Console yang dipilih.");
+        }
+        const accessToken = await getGoogleAccessToken(env);
+        const apiResult = await googleSearchConsoleRequest(accessToken, "PUT",
+          "https://www.googleapis.com/webmasters/v3/sites/" + encodeURIComponent(siteUrl) +
+          "/sitemaps/" + encodeURIComponent(sitemapUrl));
+        const publicSignals = await inspectPublicGscSignals(getGscPropertyHomepage(siteUrl));
+        const trackingId = createGscTrackingId();
+        const diagnostic = {
+          source: "Google Search Console Sitemaps API",
+          apiHttpStatus: apiResult.status,
+          siteUrl: siteUrl,
+          sitemapUrl: sitemapUrl,
+          acceptedByGoogleApi: true,
+          note: "Penerimaan sitemap bukan jaminan seluruh URL akan di-crawl atau diindeks."
+        };
+        await saveGscSubmissionLog(env, {
+          url: sitemapUrl,
+          domain: getGscPropertyDomain(siteUrl),
+          httpStatus: publicSignals.httpStatus || apiResult.status,
+          verificationTagFound: publicSignals.verificationTagFound ? 1 : 0,
+          sitemapDetected: 1,
+          indexingStatus: "SITEMAP_SUBMITTED",
+          diagnosticMessage: JSON.stringify(diagnostic),
+          gscTrackingId: trackingId
+        });
+        await sendTelegramMessage(botToken, chatId,
+          "✅ <b>SITEMAP DITERIMA API GOOGLE</b>\n" +
+          "• Properti: <code>" + escapeHtml(siteUrl) + "</code>\n" +
+          "• Sitemap: <code>" + escapeHtml(sitemapUrl) + "</code>\n" +
+          "• HTTP API: " + apiResult.status + "\n" +
+          "• Tracking ID: <code>" + trackingId + "</code>\n\n" +
+          "<i>Google menerima pendaftaran sitemap. Ini tidak menjamin URL langsung di-crawl atau diindeks. Gunakan /gsc_sitemaps untuk memeriksa catatan sitemap.</i>");
+      } catch (error) {
+        await sendTelegramMessage(botToken, chatId,
+          "❌ Pengiriman sitemap gagal:\n" + escapeHtml(error.message || "Permintaan Google gagal.") + "\n\n" +
+          "Periksa apakah OAuth memiliki scope webmasters (read/write) dan akun OAuth memiliki akses ke properti.");
+      }
+      break;
+    }
+
     case "/trustpositif": {
       const targetDomain = args[0] ? args[0].replace(/^https?:\/\//, "").replace(/\/.*$/, "").toLowerCase() : baseDomain;
       if (!isValidDomainName(targetDomain)) {
@@ -516,6 +764,157 @@ async function sendTelegramMessage(token, chatId, text, replyMarkup = null) {
     body: JSON.stringify(body)
   });
   return res.json();
+}
+
+
+async function getGoogleAccessToken(env) {
+  const clientId = (env.GSC_CLIENT_ID || "").trim();
+  const clientSecret = (env.GSC_CLIENT_SECRET || "").trim();
+  const refreshToken = (env.GSC_REFRESH_TOKEN || "").trim();
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error("Kredensial OAuth GSC belum lengkap. Tambahkan GSC_CLIENT_ID, GSC_CLIENT_SECRET, dan GSC_REFRESH_TOKEN sebagai Runtime Secrets.");
+  }
+
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token"
+    })
+  });
+  const tokenData = await tokenResponse.json().catch(() => ({}));
+  if (!tokenResponse.ok || !tokenData.access_token) {
+    const reason = tokenData.error_description || tokenData.error || ("HTTP " + tokenResponse.status);
+    throw new Error("Google OAuth gagal memperbarui token: " + reason);
+  }
+  return tokenData.access_token;
+}
+
+async function googleSearchConsoleRequest(accessToken, method, url, body = undefined) {
+  const response = await fetch(url, {
+    method: method,
+    headers: {
+      Authorization: "Bearer " + accessToken,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" })
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  });
+  const raw = await response.text();
+  let data = {};
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = { rawResponse: raw.slice(0, 1000) };
+    }
+  }
+  if (!response.ok) {
+    const detail = data.error?.message || data.error_description || ("HTTP " + response.status);
+    throw new Error("Google Search Console API: " + detail);
+  }
+  return { status: response.status, data: data };
+}
+
+function normalizeGscSiteProperty(value) {
+  const input = String(value || "").trim();
+  if (!input) throw new Error("Properti Search Console wajib diisi.");
+  if (/^sc-domain:/i.test(input)) {
+    const domain = input.slice("sc-domain:".length).toLowerCase();
+    if (!isValidDomainName(domain)) throw new Error("Format Domain Property tidak valid. Gunakan sc-domain:domainanda.com.");
+    return "sc-domain:" + domain;
+  }
+
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(input) ? input : "https://" + input;
+  const parsed = new URL(candidate);
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error("Properti URL-prefix harus berupa URL http/https yang valid tanpa query atau fragment.");
+  }
+  if (!isValidDomainName(parsed.hostname)) throw new Error("Hostname properti tidak valid.");
+  if (!parsed.pathname.endsWith("/")) parsed.pathname += "/";
+  return parsed.toString();
+}
+
+function normalizeGscInspectionUrl(value) {
+  const input = String(value || "").trim();
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(input) ? input : "https://" + input;
+  const parsed = new URL(candidate);
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+    throw new Error("URL harus menggunakan http atau https dan tidak boleh berisi kredensial.");
+  }
+  if (!isValidDomainName(parsed.hostname)) throw new Error("Domain URL tidak valid.");
+  return parsed.toString();
+}
+
+function isUrlWithinGscProperty(targetUrl, siteUrl) {
+  const target = new URL(targetUrl);
+  if (siteUrl.startsWith("sc-domain:")) {
+    const domain = siteUrl.slice("sc-domain:".length);
+    return target.hostname === domain || target.hostname.endsWith("." + domain);
+  }
+  const property = new URL(siteUrl);
+  return target.protocol === property.protocol &&
+    target.hostname === property.hostname &&
+    target.port === property.port &&
+    target.pathname.startsWith(property.pathname);
+}
+
+function getGscPropertyHomepage(siteUrl) {
+  if (siteUrl.startsWith("sc-domain:")) {
+    return "https://" + siteUrl.slice("sc-domain:".length) + "/";
+  }
+  return siteUrl;
+}
+
+function getGscPropertyDomain(siteUrl) {
+  return siteUrl.startsWith("sc-domain:")
+    ? siteUrl.slice("sc-domain:".length)
+    : new URL(siteUrl).hostname;
+}
+
+async function inspectPublicGscSignals(homepageUrl) {
+  try {
+    const response = await fetch(homepageUrl, {
+      method: "GET",
+      redirect: "follow",
+      headers: { "User-Agent": "Adminku-GSC-Verification-Check/1.0" }
+    });
+    const html = await response.text();
+    const verificationTagFound = /<meta\b(?=[^>]*\bname\s*=\s*["']google-site-verification["'])[^>]*>/i.test(html);
+    return { httpStatus: response.status, verificationTagFound: verificationTagFound };
+  } catch {
+    return { httpStatus: 0, verificationTagFound: false };
+  }
+}
+
+function createGscTrackingId() {
+  const suffix = typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()
+    : Math.floor(Math.random() * 1e10).toString(36).toUpperCase();
+  return "GSC-CF-" + Date.now().toString(36).toUpperCase() + "-" + suffix;
+}
+
+async function saveGscSubmissionLog(env, entry) {
+  if (!env.DB) throw new Error("Binding D1 DB belum tersedia.");
+  await env.DB.prepare(
+    "INSERT INTO gsc_submission_logs " +
+    "(url, domain, searchEngine, httpStatus, verificationTagFound, sitemapDetected, " +
+    "indexingStatus, diagnosticMessage, gscTrackingId, submittedAt) " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(
+    entry.url,
+    entry.domain,
+    "Google Search Console API",
+    Number.isInteger(entry.httpStatus) ? entry.httpStatus : 0,
+    entry.verificationTagFound ? 1 : 0,
+    entry.sitemapDetected ? 1 : 0,
+    entry.indexingStatus,
+    String(entry.diagnosticMessage || "").slice(0, 8000),
+    entry.gscTrackingId,
+    Date.now()
+  ).run();
 }
 
 function isValidDomainName(value) {
