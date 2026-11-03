@@ -238,20 +238,20 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
     case "/reqweb": {
       const requestDetails = args.join(" ").trim().slice(0, 1200);
       const reqWebText = requestDetails
-        ? "🛠️ <b>LAYANAN PERMINTAAN WEB — REQWEB</b>\\n" +
-          "Rincian yang Anda tulis:\\n<pre>" + escapeHtml(requestDetails) + "</pre>\\n" +
-          "Buka bot ReqWeb, lalu kirim rincian tersebut langsung di percakapan ReqWeb.\\n\\n" +
+        ? "🛠️ <b>LAYANAN PERMINTAAN WEB — REQWEB</b>\n" +
+          "Rincian yang Anda tulis:\n<pre>" + escapeHtml(requestDetails) + "</pre>\n" +
+          "Buka bot ReqWeb, lalu kirim rincian tersebut langsung di percakapan ReqWeb.\n\n" +
           "<i>Catatan: Adminku hanya membuka tautan ke bot eksternal. Pengiriman permintaan dan status pengerjaan belum tersinkron otomatis ke database Adminku.</i>"
-        : "🛠️ <b>LAYANAN PERMINTAAN WEB — REQWEB</b>\\n" +
-          "Gunakan bot ReqWeb untuk mengirim permintaan web/website.\\n\\n" +
-          "Anda juga dapat menambahkan rincian setelah perintah, misalnya:\\n" +
-          "<code>/reqweb Buat landing page untuk domain contoh.com</code>\\n\\n" +
-          "<i>Adminku membuka layanan eksternal; rincian harus Anda kirim sendiri ke ReqWeb.</i>";
+        : "🛠️ <b>LAYANAN PERMINTAAN WEB — REQWEB</b>\n" +
+          "Gunakan bot ReqWeb untuk mengirim permintaan web/website.\n\n" +
+          "Anda juga dapat menambahkan rincian setelah perintah, misalnya:\n" +
+          "<code>/reqweb Buat landing page untuk domain contoh.com</code>\n\n" +
+          "<i>Adminku membuka layanan eksternal; rincian harus Anda kirim sendiri ke ReqWeb.</i>\\n" +
+          "Untuk mencatat kendala secara internal, gunakan <code>/ticket [rincian]</code> di chat Adminku.";
 
       await sendTelegramMessage(botToken, chatId, reqWebText, {
         inline_keyboard: [
-          [{ text: "🛠️ Buka @reqweb_bot", url: reqWebBotUrl }],
-          [{ text: "🎫 Catat kendala di Adminku", callback_data: "reqweb_use_ticket" }]
+          [{ text: "🛠️ Buka @reqweb_bot", url: reqWebBotUrl }]
         ]
       });
       break;
