@@ -4,6 +4,8 @@ compatibility_date = "2024-01-01"
 
 [vars]
 TELEGRAM_ADMIN_ID = "7862805424"
+# Additional admin IDs; comma-separated numeric Telegram user IDs.
+TELEGRAM_ADMIN_IDS = "8177955807"
 TELEGRAM_ADMIN_USERNAME = "felixsnd"
 TELEGRAM_GROUP_LINK = "https://t.me/+ybOzZ_lstEdhNDU1"
 TELEGRAM_WEBAPP_URL = "https://ais-pre-3jtqjse2yo4oegu26drysb-313938030691.asia-southeast1.run.app"
