@@ -141,8 +141,6 @@ fun MainAppRoot(viewModel: MainViewModel = viewModel()) {
     val webhookActionLoading by viewModel.webhookActionLoading.collectAsState()
     val ticketAiSuggestion by viewModel.ticketAiSuggestion.collectAsState()
     val isTicketAiLoading by viewModel.isTicketAiLoading.collectAsState()
-    val cloudflareDeployStatus by viewModel.cloudflareDeployStatus.collectAsState()
-    val isCloudflareDeploying by viewModel.isCloudflareDeploying.collectAsState()
 
     val openTicketsCount = tickets.count { it.status == MemberTicket.STATUS_OPEN }
 
@@ -555,13 +553,10 @@ fun MainAppRoot(viewModel: MainViewModel = viewModel()) {
                                     settings = settings,
                                     webhookResult = webhookResult,
                                     isLoading = webhookActionLoading,
-                                    isRemoteDeploying = isCloudflareDeploying,
-                                    remoteDeployStatus = cloudflareDeployStatus,
                                     onSetWebhook = { url -> viewModel.setTelegramWebhook(url) },
                                     onGetWebhookInfo = { viewModel.getTelegramWebhookInfo() },
                                     onDeleteWebhook = { viewModel.deleteTelegramWebhook() },
                                     onClearResult = { viewModel.clearWebhookResult() },
-                                    onRemoteDeploy = { token, acc, sub -> viewModel.deployRemoteToCloudflare(token, acc, sub) },
                                     onSaveSettings = { updated -> viewModel.saveSettings(updated) }
                                 )
                             }
