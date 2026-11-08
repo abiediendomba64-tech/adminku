@@ -13,12 +13,16 @@ This is a source overlay for `abiediendomba64-tech/adminku`, based on the inspec
 
 ## Apply to a clean clone
 
-The installer is designed for a clean clone whose `cloudflare/worker.js` still matches the audited source. Run:
+Use two separate directories: one checkout containing this overlay, and one clean checkout of `main` as the install target. For example:
 
 ```bash
-git switch -c feat/backoffice-rest-api-v1
-bash scripts/install-overlay.sh "$PWD"
+git clone --branch fix/backoffice-overlay-review https://github.com/abiediendomba64-tech/adminku.git adminku-overlay
+git clone --branch main https://github.com/abiediendomba64-tech/adminku.git adminku-target
+cd adminku-overlay
+bash scripts/install-overlay.sh ../adminku-target
 ```
+
+The target must be a clean clone. The installer reads source files from the overlay checkout and modifies only the target's local working tree.
 
 It refuses a dirty working tree, existing conflicting overlay files, or a Worker whose audited source blob does not match. It makes a backup of `cloudflare/worker.js` before patching. The patcher changes the Worker only in the local Git working tree; no cloud API or deployment is called.
 
