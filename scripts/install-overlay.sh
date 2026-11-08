@@ -2,9 +2,10 @@
 set -euo pipefail
 
 OVERLAY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OVERLAY_ROOT="$(cd "$OVERLAY_DIR/.." && pwd)"
 TARGET="${1:-}"
 if [[ -z "$TARGET" ]]; then
-  echo "Usage: bash install-overlay.sh /path/to/adminku-clone" >&2
+  echo "Usage: bash scripts/install-overlay.sh /path/to/adminku-clone" >&2
   exit 2
 fi
 TARGET="$(cd "$TARGET" && pwd)"
@@ -23,17 +24,16 @@ for path in cloudflare/backoffice-api.js cloudflare/migrations/0000_legacy_basel
   fi
 done
 
-# Validate exact Worker patch anchors before copying or editing anything.
-node "$OVERLAY_DIR/scripts/integrate-worker.mjs" "$TARGET/cloudflare/worker.js" --check-only
+node "$OVERLAY_DIR/integrate-worker.mjs" "$TARGET/cloudflare/worker.js" --check-only
 
 mkdir -p "$TARGET/cloudflare/migrations" "$TARGET/cloudflare/tests" "$TARGET/scripts" "$TARGET/.github/workflows"
-cp "$OVERLAY_DIR/cloudflare/backoffice-api.js" "$TARGET/cloudflare/backoffice-api.js"
-cp "$OVERLAY_DIR/cloudflare/migrations/0000_legacy_baseline.sql" "$TARGET/cloudflare/migrations/0000_legacy_baseline.sql"
-cp "$OVERLAY_DIR/cloudflare/migrations/0001_backoffice_api.sql" "$TARGET/cloudflare/migrations/0001_backoffice_api.sql"
-cp "$OVERLAY_DIR/cloudflare/tests/backoffice-api.test.js" "$TARGET/cloudflare/tests/backoffice-api.test.js"
-cp "$OVERLAY_DIR/cloudflare/tests/migration_smoke.py" "$TARGET/cloudflare/tests/migration_smoke.py"
-cp "$OVERLAY_DIR/scripts/integrate-worker.mjs" "$TARGET/scripts/integrate-worker.mjs"
-cp "$OVERLAY_DIR/cloudflare/README_BACKOFFICE_API.md" "$TARGET/cloudflare/README_BACKOFFICE_API.md"
+cp "$OVERLAY_ROOT/cloudflare/backoffice-api.js" "$TARGET/cloudflare/backoffice-api.js"
+cp "$OVERLAY_ROOT/cloudflare/migrations/0000_legacy_baseline.sql" "$TARGET/cloudflare/migrations/0000_legacy_baseline.sql"
+cp "$OVERLAY_ROOT/cloudflare/migrations/0001_backoffice_api.sql" "$TARGET/cloudflare/migrations/0001_backoffice_api.sql"
+cp "$OVERLAY_ROOT/cloudflare/tests/backoffice-api.test.js" "$TARGET/cloudflare/tests/backoffice-api.test.js"
+cp "$OVERLAY_ROOT/cloudflare/tests/migration_smoke.py" "$TARGET/cloudflare/tests/migration_smoke.py"
+cp "$OVERLAY_DIR/integrate-worker.mjs" "$TARGET/scripts/integrate-worker.mjs"
+cp "$OVERLAY_ROOT/cloudflare/README_BACKOFFICE_API.md" "$TARGET/cloudflare/README_BACKOFFICE_API.md"
 
 node --input-type=module - "$TARGET/cloudflare/package.json" <<'NODE'
 import { readFile, writeFile } from 'node:fs/promises';
@@ -68,13 +68,12 @@ if (migrationLines.length === 0) {
 await writeFile(path, text);
 NODE
 
-# Keep a recoverable local snapshot of the original Worker before applying the patch.
 BACKUP="$(mktemp /tmp/adminku-worker-pre-backoffice.XXXXXX.js)"
 cp "$TARGET/cloudflare/worker.js" "$BACKUP"
 node "$TARGET/scripts/integrate-worker.mjs" "$TARGET/cloudflare/worker.js"
-cp "$OVERLAY_DIR/.github/workflows/cloudflare-backoffice-api-validation.yml" "$TARGET/.github/workflows/cloudflare-backoffice-api-validation.yml"
+cp "$OVERLAY_ROOT/.github/workflows/cloudflare-backoffice-api-validation.yml" "$TARGET/.github/workflows/cloudflare-backoffice-api-validation.yml"
 mkdir -p "$TARGET/backoffice-panel"
-cp "$OVERLAY_DIR/backoffice-panel/"* "$TARGET/backoffice-panel/"
+cp "$OVERLAY_ROOT/backoffice-panel/"* "$TARGET/backoffice-panel/"
 
 echo "Overlay installed in local working tree. Original Worker backup: $BACKUP"
 echo "No remote database, Worker, Pages, secrets, or Runtime Variables were changed."

@@ -7,7 +7,14 @@
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
-    "dry-run": "wrangler deploy --dry-run"
+    "dry-run": "wrangler deploy --dry-run",
+    "check": "node --check worker.js && node --check backoffice-api.js",
+    "test": "node --test tests/*.test.js",
+    "test:migrations": "python3 tests/migration_smoke.py",
+    "migrations:local": "npx --yes wrangler@latest d1 migrations apply adminku-db --local"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
 }
