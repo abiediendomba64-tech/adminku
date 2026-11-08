@@ -9,7 +9,6 @@ import com.example.data.model.GscSubmissionLog
 import com.example.data.model.MemberTicket
 import com.example.data.network.ChatMessage
 import com.example.data.network.GeminiApiService
-import com.example.data.network.CloudflareDeployService
 import com.example.data.network.GscInspectionResult
 import com.example.data.network.GscService
 import com.example.data.network.ReindexExecutionResult
@@ -56,7 +55,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val geminiApi = GeminiApiService()
     private val geminiRepository = GeminiRepository(geminiApi)
     private val gscService = GscService()
-    private val cloudflareDeployService = CloudflareDeployService()
 
     val domains: StateFlow<List<DomainRequest>> = domainDao.getAllDomains()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -93,11 +91,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isTicketAiLoading = MutableStateFlow(false)
     val isTicketAiLoading: StateFlow<Boolean> = _isTicketAiLoading.asStateFlow()
 
-    private val _cloudflareDeployStatus = MutableStateFlow<String?>(null)
-    val cloudflareDeployStatus: StateFlow<String?> = _cloudflareDeployStatus.asStateFlow()
-
-    private val _isCloudflareDeploying = MutableStateFlow(false)
-    val isCloudflareDeploying: StateFlow<Boolean> = _isCloudflareDeploying.asStateFlow()
 
     private val _isPollerRunning = MutableStateFlow(false)
     val isPollerRunning: StateFlow<Boolean> = _isPollerRunning.asStateFlow()
@@ -405,45 +398,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     chatId = adminId,
                     text = "❌ <b>[PERMOHONAN DOMAIN DITOLAK]</b>\nDomain: <code>${domain.domainName}</code>\nAlasan: $reason"
                 )
-            }
-        }
-    }
-
-    fun deployRemoteToCloudflare(apiToken: String, accountId: String, subdomain: String = "") {
-        viewModelScope.launch {
-            _isCloudflareDeploying.value = true
-            _cloudflareDeployStatus.value = null
-            logBot("Memulai remote deployment script worker ke Cloudflare API...")
-
-            val workerScript = """
-export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/status")) {
-      return new Response(JSON.stringify({ status: "online", platform: "Cloudflare Workers", time: new Date() }), {
-        headers: { "Content-Type": "application/json" }
-      });
-    }
-    if (request.method === "POST" && (url.pathname === "/webhook" || url.pathname === "/")) {
-      return new Response("OK", { status: 200 });
-    }
-    return new Response("Not Found", { status: 404 });
-  }
-};
-            """.trimIndent()
-
-            val deployResult = cloudflareDeployService.deployRemoteWorker(
-                apiToken = apiToken,
-                accountId = accountId,
-                workerCode = workerScript,
-                subdomain = subdomain
-            )
-            _isCloudflareDeploying.value = false
-            _cloudflareDeployStatus.value = deployResult.message
-            logBot("Hasil remote deploy Cloudflare: ${deployResult.message}")
-
-            if (deployResult.success && deployResult.workerUrl != null) {
-                setTelegramWebhook(deployResult.workerUrl)
             }
         }
     }
