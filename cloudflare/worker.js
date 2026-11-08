@@ -8,9 +8,16 @@
  * Web App URL: https://ais-pre-3jtqjse2yo4oegu26drysb-313938030691.asia-southeast1.run.app
  */
 
+import { handleBackofficeApi } from "./backoffice-api.js";
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    // Backoffice REST API. All existing Telegram bot routes below remain unchanged.
+    if (url.pathname.startsWith("/api/")) {
+      return handleBackofficeApi(request, env, ctx);
+    }
 
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/status")) {
       let database = "unbound";
@@ -26,7 +33,7 @@ export default {
       return jsonResponse({
         status: "online",
         service: "Backoffice Telegram Bot",
-        version: "2.1.0",
+        version: "2.2.0",
         database,
         timestamp: new Date().toISOString()
       });
@@ -358,28 +365,27 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
 
       for (let attempt = 0; attempt < 8; attempt += 1) {
         const candidate = `TKT-${1000 + Math.floor(Math.random() * 9000)}`;
-        const inserted = await env.DB.prepare(
+        const insertStatement = env.DB.prepare(
           `INSERT OR IGNORE INTO member_tickets
             (ticketCode, memberUsername, category, priority, domainAffected, issueDescription,
              status, reportedVia, createdAt, lastUpdated, adminNotes, telegramUserId, telegramChatId)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
-          candidate,
-          fromUsername.slice(0, 80),
-          "Lainnya",
-          "TINGGI",
-          "",
-          ticketIssue,
-          "OPEN",
-          "TELEGRAM_BOT",
-          now,
-          now,
-          "",
-          senderId,
-          chatId
-        ).run();
+          candidate, fromUsername.slice(0, 80), "Lainnya", "TINGGI", "", ticketIssue,
+          "OPEN", "TELEGRAM_BOT", now, now, "", senderId, chatId
+        );
+        // The dependent INSERT...SELECT statements only write audit rows when the ticket INSERT succeeded.
+        const historyStatement = env.DB.prepare(
+          `INSERT INTO ticket_history (ticketCode, oldStatus, newStatus, note, changedByTelegramUserId, changedByUsername, source, createdAt)
+           SELECT ?, NULL, 'OPEN', 'Tiket dibuat melalui Telegram Bot', ?, ?, 'TELEGRAM_BOT', ? WHERE changes() > 0`
+        ).bind(candidate, senderId, fromUsername, now);
+        const auditStatement = env.DB.prepare(
+          `INSERT INTO audit_logs (actorTelegramUserId, actorUsername, actorRole, action, resourceType, resourceId, detailsJson, createdAt)
+           SELECT ?, ?, ?, 'CREATE', 'ticket', ?, ?, ? WHERE changes() > 0`
+        ).bind(senderId, fromUsername, isAdmin ? "ADMIN" : "MEMBER", candidate, JSON.stringify({ status: "OPEN", reportedVia: "TELEGRAM_BOT" }), now);
+        const insertedBatch = await env.DB.batch([insertStatement, historyStatement, auditStatement]);
 
-        if (inserted.meta?.changes > 0) {
+        if (insertedBatch[0]?.meta?.changes > 0) {
           ticketId = candidate;
           break;
         }
@@ -446,9 +452,25 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
           return;
         }
 
-        await env.DB.prepare(
-          "UPDATE member_tickets SET status = ?, lastUpdated = ? WHERE ticketCode = ?"
-        ).bind(requestedStatus, Date.now(), ticketId).run();
+        if (requestedStatus !== ticket.status) {
+          const changedAt = Date.now();
+          const updateStatement = env.DB.prepare(
+            "UPDATE member_tickets SET status = ?, lastUpdated = ? WHERE ticketCode = ? AND status = ?"
+          ).bind(requestedStatus, changedAt, ticketId, ticket.status);
+          const auditStatement = env.DB.prepare(
+            `INSERT INTO audit_logs (actorTelegramUserId, actorUsername, actorRole, action, resourceType, resourceId, detailsJson, createdAt)
+             SELECT ?, ?, 'ADMIN', 'UPDATE_STATUS', 'ticket', ?, ?, ? WHERE changes() > 0`
+          ).bind(senderId, fromUsername, ticketId, JSON.stringify({ oldStatus: ticket.status, newStatus: requestedStatus }), changedAt);
+          const historyStatement = env.DB.prepare(
+            `INSERT INTO ticket_history (ticketCode, oldStatus, newStatus, note, changedByTelegramUserId, changedByUsername, source, createdAt)
+             SELECT ?, ?, ?, 'Perubahan status melalui Telegram Bot', ?, ?, 'TELEGRAM_BOT', ? WHERE changes() > 0 AND ? <> ?`
+          ).bind(ticketId, ticket.status, requestedStatus, senderId, fromUsername, changedAt, ticket.status, requestedStatus);
+          const results = await env.DB.batch([updateStatement, auditStatement, historyStatement]);
+          if (!results[0]?.meta || results[0].meta.changes === 0) {
+            await sendTelegramMessage(botToken, chatId, "⚠️ Status tiket berubah bersamaan. Periksa ulang dengan /status_ticket.");
+            return;
+          }
+        }
         displayStatus = requestedStatus;
       }
 
@@ -583,6 +605,7 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
           diagnosticMessage: JSON.stringify(diagnostic),
           gscTrackingId: trackingId
         });
+        await recordBotAudit(env, senderId, fromUsername, "INSPECT", "gsc_url", trackingId, { inspectionUrl, siteUrl, verdict: indexStatus.verdict || "UNKNOWN" });
 
         await sendTelegramMessage(botToken, chatId,
           "🔎 <b>HASIL URL INSPECTION GOOGLE</b>\n" +
@@ -687,6 +710,7 @@ async function handleTelegramUpdate(update, botToken, env, workerOrigin) {
           diagnosticMessage: JSON.stringify(diagnostic),
           gscTrackingId: trackingId
         });
+        await recordBotAudit(env, senderId, fromUsername, "SUBMIT_SITEMAP", "gsc_sitemap", trackingId, { siteUrl, sitemapUrl, apiHttpStatus: apiResult.status });
         await sendTelegramMessage(botToken, chatId,
           "✅ <b>SITEMAP DITERIMA API GOOGLE</b>\n" +
           "• Properti: <code>" + escapeHtml(siteUrl) + "</code>\n" +
@@ -814,6 +838,14 @@ async function sendTelegramMessage(token, chatId, text, replyMarkup = null) {
   return res.json();
 }
 
+
+async function recordBotAudit(env, telegramUserId, username, action, resourceType, resourceId, details = {}) {
+  if (!env.DB) throw new Error("Binding D1 DB belum tersedia untuk audit.");
+  await env.DB.prepare(
+    `INSERT INTO audit_logs (actorTelegramUserId, actorUsername, actorRole, action, resourceType, resourceId, detailsJson, createdAt)
+     VALUES (?, ?, 'ADMIN', ?, ?, ?, ?, ?)`
+  ).bind(telegramUserId, username, action, resourceType, String(resourceId), JSON.stringify(details).slice(0, 8000), Date.now()).run();
+}
 
 async function getGoogleAccessToken(env) {
   const clientId = (env.GSC_CLIENT_ID || "").trim();
