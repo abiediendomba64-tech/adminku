@@ -1,0 +1,59 @@
+name: Cloudflare Worker Validation
+
+on:
+  pull_request:
+    paths:
+      - "cloudflare/**"
+      - "backoffice-panel/**"
+      - ".github/workflows/cloudflare-backoffice-api-validation.yml"
+      - ".github/workflows/cloudflare-worker-validation.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "cloudflare/**"
+      - "backoffice-panel/**"
+      - ".github/workflows/cloudflare-backoffice-api-validation.yml"
+      - ".github/workflows/cloudflare-worker-validation.yml"
+
+jobs:
+  validate-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        working-directory: cloudflare
+        run: npm install
+
+      - name: Check JavaScript syntax
+        working-directory: cloudflare
+        run: npm run check
+
+      - name: Run API unit tests
+        working-directory: cloudflare
+        run: npm test
+
+      - name: Run SQLite migration smoke test
+        working-directory: cloudflare
+        run: npm run test:migrations
+
+      - name: Apply D1 migrations to local database only
+        working-directory: cloudflare
+        run: npx wrangler d1 migrations apply adminku-db --local
+
+      - name: Validate Worker bundle without deploying
+        working-directory: cloudflare
+        run: npx wrangler deploy --dry-run

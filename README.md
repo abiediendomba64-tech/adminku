@@ -1,47 +1,43 @@
-# Backoffice Bot & GSC Automation Suite (100% Free Tier)
+# Adminku REST API + D1 source overlay
 
-Aplikasi Android dan Bot Telegram untuk manajemen domain, backoffice marketing-tags, verifikasi Google Search Console, sistem tiket keluhan member, integrasi TrustPositif, `@reqweb_bot`, dan WebApp workspace.
+This repository package implements the first backend phase for Adminku Backoffice. It is an **overlay**, not a replacement repository for the Android app, the Telegram bot, or the rest of the Adminku project.
 
----
+## Included
 
-## 🐙 1. GitHub Actions Build APK Gratis (Free CI/CD)
+- `/api/v1/*` REST API source with Telegram Mini App `initData` HMAC validation, CORS allowlist, role-based access, D1 parameterized queries, and append-only audit/history records.
+- Additive D1 migrations: safe legacy baseline plus `users`, `marketing_tags`, `ticket_history`, and `audit_logs`.
+- A guarded integration patch for the existing `cloudflare/worker.js` that keeps current Telegram routes/commands and adds API dispatch + audit writes from bot ticket/GSC actions.
+- API tests, SQLite migration smoke tests, and a GitHub Actions workflow for local validation only.
+- Installer to apply the overlay to a clean clone of `abiediendomba64-tech/adminku`.
 
-Anda **TIDAK PERLU** menginstall Android Studio atau komputer berat untuk membuat file `.apk`. GitHub Actions menyediakan **2.000 menit build gratis per bulan**!
+## Not included / not claimed
 
-### Cara Mendapatkan APK Secara Gratis via GitHub:
-1. **Push Proyek ke Repository GitHub**:
-   - Buat repo baru di [GitHub](https://github.com/new) (bisa **Public** atau **Private**).
-   - Push kode ini ke repo Anda.
-2. **Otomatis Build APK**:
-   - File workflow telah tersedia di `.github/workflows/build-apk.yml`.
-   - Setiap kali Anda melakukan `git push`, GitHub akan otomatis mem-build APK Android Anda.
-3. **Manual Trigger (Sekali Klik)**:
-   - Buka tab **Actions** di repo GitHub Anda.
-   - Pilih **Build Android APK (Free CI/CD)** di daftar kiri.
-   - Klik tombol **Run workflow** -> Pilih `debug` atau `release` -> Klik **Run workflow**.
-4. **Unduh File APK**:
-   - Setelah proses selesai (biasanya 2-4 menit), klik nama build yang telah selesai.
-   - Scroll ke bagian **Artifacts** di bawah halaman.
-   - Klik **BackofficeBot-Debug-APK** untuk mengunduh file `.apk` langsung ke HP atau PC Anda!
+- No Web App frontend in this phase.
+- No Pages deployment, Worker deployment, remote D1 migration, Runtime Variable update, BotFather update, or Android APK release.
+- Marketing Tags are stored as configuration; automatic injection into third-party websites is not implemented. ReqWeb and TrustPositif remain external links until official API access exists.
 
----
+## Install into the main repo
 
-## ☁️ 2. Cloudflare Workers 24/7 Bot Gratis (100k Req/Day Free)
+```bash
+git clone https://github.com/abiediendomba64-tech/adminku.git
+cd adminku
+git switch -c feat/backoffice-rest-api-v1
+bash /path/to/adminku-rest-api-overlay/install-overlay.sh "$PWD"
+```
 
-Bot Telegram dapat berjalan 24 jam sehari tanpa perlu aplikasi Android aktif di latar belakang berkat Cloudflare Workers Serverless.
+The installer requires a clean working tree and the exact Worker source blob that was audited. It stops rather than applying an uncertain patch.
 
-- **Lokasi Kode Worker:** `cloudflare/worker.js`
-- **Konfigurasi Wrangler:** `cloudflare/wrangler.toml`
-- **Panduan Lengkap:** Baca `cloudflare/README.md` atau gunakan tab **Cloudflare & GitHub Free Tier** langsung di dalam aplikasi!
+## Local tests
 
----
+```bash
+cd cloudflare
+npm run check
+npm test
+npm run test:migrations
+npx --yes wrangler@latest d1 migrations apply adminku-db --local
+npx --yes wrangler@latest deploy --dry-run
+```
 
-## 🎯 Target Konfigurasi & Admin:
-- **Admin ID Telegram:** `7862805424`
-- **Admin Handle:** `@felixsnd` (`https://t.me/felixsnd`)
-- **Grup Telegram:** `https://t.me/+ybOzZ_lstEdhNDU1`
-- **Domain Panel Default:** `panel-utama88.com`
-- **Path Marketing Tags:** `/backoffice/settings/marketing-tags`
-- **Database Nawala/Kominfo:** `https://trustpositif.app/`
-- **Bot Integrasi Request Web:** `https://t.me/reqweb_bot`
-- **Web App URL:** `https://ais-pre-3jtqjse2yo4oegu26drysb-313938030691.asia-southeast1.run.app`
+The Wrangler migration command above uses `--local`; do not remove that flag for the first test. Do not apply remote migrations or deploy until after D1 backup and explicit approval.
+
+See [`INTEGRATION.md`](INTEGRATION.md) and [`cloudflare/README_BACKOFFICE_API.md`](cloudflare/README_BACKOFFICE_API.md) for route details and deployment gates.

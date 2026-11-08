@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Adminku · Backoffice</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="config.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="brand-mark">A</span><div><strong>ADMINKU</strong><small>Backoffice workspace</small></div></div>
+      <div class="profile" id="profile"><span class="avatar">?</span><div><strong id="profile-name">Memeriksa sesi</strong><small id="profile-role">Telegram Mini App</small></div></div>
+      <nav class="nav" aria-label="Navigasi utama">
+        <button class="nav-item active" data-page="dashboard"><span>▦</span> Dashboard</button>
+        <button class="nav-item" data-page="tickets"><span>▤</span> Tiket</button>
+        <button class="nav-item" data-page="domains"><span>◎</span> Domain</button>
+        <button class="nav-item" data-page="tags"><span>⌘</span> Marketing Tags</button>
+        <button class="nav-item" data-page="gsc"><span>⌕</span> Google Search Console</button>
+        <button class="nav-item admin-only" data-page="audit"><span>◷</span> Audit Log</button>
+        <button class="nav-item admin-only" data-page="users"><span>♙</span> Pengguna & Hak Akses</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <a class="external-link" target="_blank" rel="noopener" id="reqweb-link" href="https://t.me/reqweb_bot">↗ Layanan ReqWeb</a>
+        <a class="external-link" target="_blank" rel="noopener" href="https://trustpositif.komdigi.go.id/">↗ TrustPositif</a>
+        <small class="version">Adminku API v1</small>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><button class="mobile-menu" id="mobile-menu" aria-label="Buka menu">☰</button><div><p class="eyebrow">PANEL OPERASIONAL</p><h1 id="page-title">Dashboard</h1></div><div class="top-actions"><span class="connection" id="connection"><i></i> Memeriksa koneksi</span><button class="btn btn-ghost" id="refresh-btn">↻ Refresh</button></div></header>
+      <div id="notice" class="notice hidden" role="status"></div>
+      <section id="page-dashboard" class="page active"><div id="dashboard-state" class="state">Memuat data dashboard…</div><div id="dashboard-content" class="hidden"></div></section>
+      <section id="page-tickets" class="page"><div class="toolbar"><input id="ticket-search" class="search" type="search" placeholder="Cari kode tiket atau kendala"><select id="ticket-filter"><option value="">Semua status</option><option>OPEN</option><option>DIPROSES</option><option>SELESAI</option><option>DITOLAK</option></select><button class="btn btn-primary" id="new-ticket">+ Buat tiket</button></div><div id="tickets-state" class="state">Memuat tiket…</div><div id="tickets-table"></div></section>
+      <section id="page-domains" class="page"><div class="toolbar"><input id="domain-search" class="search" type="search" placeholder="Cari domain"><select id="domain-filter"><option value="">Semua status</option><option>PENDING_DNS</option><option>PENDING_VERIFICATION</option><option>ACTIVE</option><option>REJECTED</option><option>SUSPENDED</option></select><button class="btn btn-primary admin-write" id="new-domain">+ Tambah domain</button></div><div id="domains-state" class="state">Memuat domain…</div><div id="domains-table"></div></section>
+      <section id="page-tags" class="page"><div class="toolbar"><div class="toolbar-copy"><strong>Marketing Tags</strong><small>Pengelolaan kode tag; perubahan belum otomatis disuntikkan ke situs.</small></div><button class="btn btn-primary admin-write" id="new-tag">+ Tambah tag</button></div><div id="tags-state" class="state">Memuat tag…</div><div id="tags-table"></div></section>
+      <section id="page-gsc" class="page"><div class="toolbar"><div class="toolbar-copy"><strong>Riwayat Google Search Console</strong><small>Menampilkan catatan yang tersimpan di D1, bukan status indexing live.</small></div><button class="btn btn-ghost" id="gsc-refresh">↻ Muat ulang</button></div><div id="gsc-state" class="state">Memuat riwayat…</div><div id="gsc-table"></div></section>
+      <section id="page-audit" class="page"><div class="toolbar"><div class="toolbar-copy"><strong>Audit Log</strong><small>Riwayat perubahan yang dicatat melalui API Backoffice.</small></div></div><div id="audit-state" class="state">Memuat audit…</div><div id="audit-table"></div></section>
+      <section id="page-users" class="page"><div class="toolbar"><div class="toolbar-copy"><strong>Pengguna & Hak Akses</strong><small>Admin utama berasal dari Runtime Variables dan tidak dapat diturunkan dari panel.</small></div><button class="btn btn-primary" id="new-user">+ Atur pengguna</button></div><div id="users-state" class="state">Memuat pengguna…</div><div id="users-table"></div></section>
+      <footer class="footer">Data bersumber dari Worker API dan D1. Tampilan tidak menggunakan data contoh.</footer>
+    </main>
+  </div>
+
+  <dialog id="editor" class="dialog"><form id="editor-form" method="dialog"><div class="dialog-head"><div><p class="eyebrow">FORM DATA</p><h2 id="editor-title">Tambah data</h2></div><button class="icon-btn" value="cancel" aria-label="Tutup">×</button></div><div id="editor-fields" class="form-grid"></div><div class="dialog-actions"><button class="btn btn-ghost" value="cancel">Batal</button><button class="btn btn-primary" id="editor-submit" value="default">Simpan</button></div></form></dialog>
+  <dialog id="detail" class="dialog"><div class="dialog-head"><div><p class="eyebrow">RINCIAN</p><h2 id="detail-title">Detail</h2></div><button class="icon-btn" id="detail-close" aria-label="Tutup">×</button></div><div id="detail-content"></div></dialog>
+</body>
+</html>

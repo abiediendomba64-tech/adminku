@@ -1,0 +1,21 @@
+name = "backoffice-telegram-bot"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+TELEGRAM_ADMIN_ID = "7862805424"
+# Additional admin IDs; comma-separated numeric Telegram user IDs.
+TELEGRAM_ADMIN_IDS = "8177955807"
+TELEGRAM_ADMIN_USERNAME = "felixsnd"
+TELEGRAM_GROUP_LINK = "https://t.me/+ybOzZ_lstEdhNDU1"
+TELEGRAM_WEBAPP_URL = "https://ais-pre-3jtqjse2yo4oegu26drysb-313938030691.asia-southeast1.run.app"
+REQWEB_BOT_URL = "https://t.me/reqweb_bot"
+# BACKOFFICE_ORIGIN must be set to the exact deployed Pages origin before panel API traffic is enabled.
+# Do not set this to a guessed hostname.
+# INIT_DATA_MAX_AGE_SECONDS defaults to 3600; optional explicit override: 3600
+
+[[d1_databases]]
+binding = "DB"
+database_name = "adminku-db"
+database_id = "70751701-1ff7-412c-acaa-1b8bb583fc67"
+migrations_dir = "migrations"
